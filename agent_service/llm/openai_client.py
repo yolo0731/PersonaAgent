@@ -8,9 +8,10 @@ from agent_service.llm.base import LLMClient, LLMMessage, LLMResponse
 
 
 class OpenAILLMClient(LLMClient):
-    def __init__(self, api_key: str | None, model: str) -> None:
+    def __init__(self, api_key: str | None, model: str, base_url: str | None = None) -> None:
         self.api_key = api_key
         self.model = model
+        self.base_url = base_url
 
     async def generate(
         self,
@@ -18,11 +19,14 @@ class OpenAILLMClient(LLMClient):
         response_model: type[BaseModel] | None = None,
     ) -> LLMResponse:
         if not self.api_key:
-            raise RuntimeError("OPENAI_API_KEY is required for OpenAILLMClient.generate().")
+            raise RuntimeError("OPENAI_API_KEY is required for the OpenAI-compatible LLM client.")
 
         openai_module = import_module("openai")
         async_openai = openai_module.AsyncOpenAI
-        client = async_openai(api_key=self.api_key)
+        client_kwargs: dict[str, str] = {"api_key": self.api_key}
+        if self.base_url:
+            client_kwargs["base_url"] = self.base_url
+        client = async_openai(**client_kwargs)
 
         completion = await client.chat.completions.create(
             model=self.model,
