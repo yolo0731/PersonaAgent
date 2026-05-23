@@ -10,6 +10,7 @@ from bot_client.liteim_protocol import (
 )
 
 
+# FrameDecoder 只负责把 TCP 字节流拆成 Packet，不负责 socket、重连或业务处理。
 class FrameDecoder:
     def __init__(self) -> None:
         self._buffer = bytearray()
@@ -37,6 +38,7 @@ class FrameDecoder:
         packets: list[Packet] = []
         read_index = 0
 
+        # 一次 feed 可能包含半包、整包或多个粘在一起的包，这里按 header/body 长度循环拆包。
         while len(self._buffer) - read_index >= PACKET_HEADER_SIZE:
             try:
                 header = parse_header(
@@ -51,6 +53,7 @@ class FrameDecoder:
             if len(self._buffer) - read_index < frame_size:
                 break
 
+            # 输出 Packet 使用独立 bytes，避免后续 buffer 裁剪影响结果。
             body_start = read_index + PACKET_HEADER_SIZE
             body_end = read_index + frame_size
             packets.append(Packet(header=header, body=bytes(self._buffer[body_start:body_end])))

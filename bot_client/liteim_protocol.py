@@ -23,6 +23,7 @@ TlvTypeValue: TypeAlias = "TlvType | int"
 TlvMap: TypeAlias = dict[int, list[bytes]]
 
 
+# 下面的协议常量和枚举镜像 LiteIM C++ V1，BotClient 不能自定义新消息类型。
 class ProtocolErrorCode(IntEnum):
     Ok = 0
     InvalidArgument = 1
@@ -328,6 +329,7 @@ def encode_packet(packet: Packet) -> bytes:
     if len(body) > MAX_PACKET_BODY_LENGTH:
         raise ProtocolError(ProtocolErrorCode.InvalidArgument, "packet body is too large")
 
+    # body_len 以实际 body 长度为准，避免调用方传入过期 header 长度。
     header = PacketHeader(
         magic=packet.header.magic,
         version=packet.header.version,
@@ -355,6 +357,7 @@ def parse_header(data: BytesLike | None) -> PacketHeader:
     magic, version, flags, raw_msg_type, seq_id, body_len = _PACKET_HEADER.unpack(
         header_data[:PACKET_HEADER_SIZE]
     )
+    # 未知 message type 保留原始整数，方便后续发现 LiteIM 协议漂移。
     known_msg_type = _known_message_type(raw_msg_type)
     msg_type = known_msg_type if known_msg_type is not None else raw_msg_type
     header = PacketHeader(
@@ -441,6 +444,7 @@ def parse_tlv_map(data: BytesLike | None) -> TlvMap:
         if value_len > len(body) - offset:
             raise ProtocolError(ProtocolErrorCode.ParseError, "tlv length exceeds body size")
 
+        # LiteIM 响应可能重复同一 TLV type，例如好友列表或离线消息列表。
         output.setdefault(raw_type, []).append(body[offset : offset + value_len])
         offset += value_len
 

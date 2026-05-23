@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from agent_service.llm.base import LLMClient, LLMMessage, LLMResponse
 
 
+# OpenAILLMClient 使用 OpenAI SDK 兼容接口；当前真实运行默认指向 DeepSeek base_url。
 class OpenAILLMClient(LLMClient):
     def __init__(self, api_key: str | None, model: str, base_url: str | None = None) -> None:
         self.api_key = api_key
@@ -21,6 +22,7 @@ class OpenAILLMClient(LLMClient):
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY is required for the OpenAI-compatible LLM client.")
 
+        # 延迟导入 openai，避免 mock 单测在未配置真实 SDK 时被迫初始化。
         openai_module = import_module("openai")
         async_openai = openai_module.AsyncOpenAI
         client_kwargs: dict[str, str] = {"api_key": self.api_key}
@@ -46,6 +48,8 @@ class OpenAILLMClient(LLMClient):
             "id": getattr(completion, "id", None),
             "model": getattr(completion, "model", self.model),
         }
+
+        # SDK 原始响应收敛成 LLMResponse，后续节点只依赖统一结构。
         return LLMResponse(
             content=content,
             model=self.model,

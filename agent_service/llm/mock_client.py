@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from agent_service.llm.base import LLMClient, LLMMessage, LLMResponse
 
 
+# MockLLMClient 不访问真实网络，用固定结果保证 workflow 单元测试稳定。
 class MockLLMClient(LLMClient):
     def __init__(
         self,
@@ -21,6 +22,7 @@ class MockLLMClient(LLMClient):
         response_model: type[BaseModel] | None = None,
     ) -> LLMResponse:
         if response_model is not None:
+            # response_model 存在时返回可校验对象，后续 LangGraph 节点可以稳定测试。
             payload = self._structured_payload(messages)
             structured = response_model.model_validate(payload)
             content = self._content_from_model(structured)
@@ -31,6 +33,7 @@ class MockLLMClient(LLMClient):
                 raw=dict(payload),
             )
 
+        # 未指定 response_model 时返回普通文本，模拟最简单的聊天回复。
         content = self._text_payload(messages)
         return LLMResponse(content=content, model=self.model, raw={"content": content})
 
