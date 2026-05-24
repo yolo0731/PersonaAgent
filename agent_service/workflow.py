@@ -7,6 +7,12 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from agent_service.dialogue_policy import DialogueDecision, DialogueIntent, DialoguePolicy
+from agent_service.review import (
+    HumanReviewStore,
+    ReviewStatus,
+    make_thread_id,
+    resume_human_review,
+)
 from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
 
 EXPECTED_NODE_ORDER = [
@@ -95,8 +101,24 @@ def run_agent_workflow(request: ChatRequest) -> AgentState:
     return cast(AgentState, final_state)
 
 
-def run_agent_chat(request: ChatRequest) -> AgentReplyCommand:
-    return run_agent_workflow(request)["final_command"]
+def run_agent_chat(
+    request: ChatRequest,
+    *,
+    review_store: HumanReviewStore | None = None,
+) -> AgentReplyCommand:
+    state = run_agent_workflow(request)
+    if review_store is not None and state["decision"].need_human_review:
+        thread_id = make_thread_id(request)
+        existing = review_store.get_review(thread_id)
+        if existing is not None and existing.status == ReviewStatus.COMPLETED:
+            return no_reply_command(request, "human_review_already_resumed")
+        review_store.create_pending(thread_id, state)
+        return no_reply_command(request, "human_review_pending")
+    return state["final_command"]
+
+
+def resume_agent_review(thread_id: str, review_store: HumanReviewStore) -> AgentReplyCommand:
+    return resume_human_review(thread_id, review_store)
 
 
 def _dialogue_policy(state: AgentState) -> dict[str, object]:

@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     echo_mode: bool = Field(default=True, validation_alias="ECHO_MODE")
     # 是否开启 LLM API 调用的 trace 日志（输出请求和响应）
     trace_enabled: bool = Field(default=True, validation_alias="TRACE_ENABLED")
+    # AgentService 本地 checkpoint / human review 状态库
+    agent_state_db_path: str = Field(
+        default="data/agent_state/state.sqlite3",
+        validation_alias="AGENT_STATE_DB_PATH",
+    )
 
     # 整个 Settings 类的读取规则
     model_config = SettingsConfigDict(

@@ -3,9 +3,16 @@
 import inspect
 from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from agent_service.config import Settings
+from agent_service.review import (
+    ApproveReviewRequest,
+    EditReviewRequest,
+    HumanReviewNotFoundError,
+    HumanReviewRecord,
+    HumanReviewStore,
+)
 from agent_service.schemas import (
     AgentReplyCommand,
     ChatRequest,
@@ -13,7 +20,7 @@ from agent_service.schemas import (
     ErrorEnvelope,
     no_reply_command,
 )
-from agent_service.workflow import run_agent_chat
+from agent_service.workflow import resume_agent_review, run_agent_chat
 
 ChatHandler = Callable[[ChatRequest], AgentReplyCommand | Awaitable[AgentReplyCommand]]
 
@@ -35,14 +42,19 @@ async def _call_chat_handler(
 def create_app(
     settings: Settings | None = None,
     chat_handler: ChatHandler | None = None,
+    review_store: HumanReviewStore | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings()
     app = FastAPI(title="PersonaAgent AgentService")
-    handler = chat_handler or _default_chat_handler
+    store = review_store or HumanReviewStore(app_settings.agent_state_db_path)
+    handler = chat_handler or (
+        lambda request: run_agent_chat(request, review_store=store)
+    )
 
     # Settings 挂在 app.state 上，后续 /chat、LLM、trace 都从这里读取运行配置。
     app.state.settings = app_settings
     app.state.chat_handler = handler
+    app.state.review_store = store
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -64,6 +76,41 @@ def create_app(
                     retryable=True,
                 ),
             )
+
+    @app.post("/human-review/{thread_id}/edit", response_model=HumanReviewRecord)
+    def edit_review(thread_id: str, request: EditReviewRequest) -> HumanReviewRecord:
+        try:
+            return store.edit(thread_id, request.edited_text)
+        except HumanReviewNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="review thread not found") from exc
+
+    @app.post("/human-review/{thread_id}/approve", response_model=HumanReviewRecord)
+    def approve_review(
+        thread_id: str,
+        request: ApproveReviewRequest | None = None,
+    ) -> HumanReviewRecord:
+        try:
+            return store.approve(
+                thread_id,
+                request.edited_text if request is not None else None,
+            )
+        except HumanReviewNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="review thread not found") from exc
+
+    @app.post("/human-review/{thread_id}/reject", response_model=HumanReviewRecord)
+    def reject_review(thread_id: str) -> HumanReviewRecord:
+        try:
+            return store.reject(thread_id)
+        except HumanReviewNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="review thread not found") from exc
+
+    @app.post("/human-review/{thread_id}/resume", response_model=ChatResponse)
+    def resume_review(thread_id: str) -> ChatResponse:
+        try:
+            command = resume_agent_review(thread_id, store)
+        except HumanReviewNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="review thread not found") from exc
+        return ChatResponse(ok=True, command=command)
 
     return app
 
