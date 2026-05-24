@@ -26,9 +26,10 @@ Current implemented foundation:
 - Authorized data governance pipeline with consent manifest validation, PII redaction, processed style sample import, revocation-aware active status, ignored raw data folders, and import reports
 - Authorized Style RAG pipeline with a dedicated Chroma style collection, `persona_id` / `consent_id` / `active` filtering, deterministic style feature extraction, insufficient-sample fallback, and workflow trace/context injection
 - Verbatim leakage guard with n-gram overlap, longest common substring ratio, PII second scan, style source-id checks, deterministic rewrite/block actions, workflow safety integration, and leakage metrics
+- Tool Calling framework with a registry, Pydantic input/output schemas, timeout trace, structured error envelopes, idempotency keys for side-effect tools, safe memory/profile/context tools, and workflow state integration
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, real tools, persona, broader production safety policy, a human review UI, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, persona, broader production safety policy, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -88,6 +89,8 @@ OPENAI_BASE_URL=https://api.deepseek.com
 
 Step 16 adds a deterministic Verbatim Leakage Guard after draft generation and before finalization. Direct style-sample copies and PII leaks are blocked, high-overlap drafts are rewritten to a safe fallback, and normal style-similar but non-verbatim replies can pass.
 
+Step 17 adds a safe Tool Calling framework inside AgentService. Built-in tools include `save_memory`, `deactivate_memory`, `get_user_profile`, `summarize_recent_context`, `search_recent_context`, and `liteim_context_tool`. Side-effect tools require an `idempotency_key`, tool failures are returned as structured envelopes, and tools do not send LiteIM messages or access LiteIM MySQL/TCP.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -127,3 +130,5 @@ The Step 14 governance tests verify no-consent rejection, forbidden usage reject
 The Step 15 Authorized Style RAG tests verify `persona_id` isolation, `consent_id` filtering, `active=false` exclusion, deterministic style feature stats, insufficient-sample fallback, and workflow style trace/context injection.
 
 The Step 16 Verbatim Leakage Guard tests verify direct style-sample copy blocking, high-overlap rewrite, PII leak blocking, style source-id leak blocking, normal non-verbatim pass behavior, and workflow safety blocking from retrieved style context.
+
+The Step 17 Tool Calling tests verify registry schema validation, timeout trace recording, required built-in tool registration, `save_memory` idempotency, structured tool failure envelopes, and workflow tool-result state injection.

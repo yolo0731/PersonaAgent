@@ -24,6 +24,8 @@ from agent_service.schemas import (
     no_reply_command,
 )
 from agent_service.style.style_store import StyleStore
+from agent_service.tools import ToolRegistry
+from agent_service.tools.builtin import build_default_tool_registry
 from agent_service.workflow import resume_agent_review, run_agent_chat
 
 ChatHandler = Callable[[ChatRequest], AgentReplyCommand | Awaitable[AgentReplyCommand]]
@@ -50,6 +52,7 @@ def create_app(
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings()
     app = FastAPI(title="PersonaAgent AgentService")
@@ -65,6 +68,7 @@ def create_app(
         embedding_client=MockEmbeddingClient(),
         top_k=app_settings.style_top_k,
     )
+    tools = tool_registry or build_default_tool_registry()
     handler = chat_handler or (
         lambda request: run_agent_chat(
             request,
@@ -72,6 +76,7 @@ def create_app(
             knowledge_retriever=knowledge_retriever,
             memory_store=memories,
             style_store=styles,
+            tool_registry=tools,
             rag_top_k=app_settings.rag_top_k,
             memory_top_k=app_settings.memory_top_k,
             style_top_k=app_settings.style_top_k,
@@ -85,6 +90,7 @@ def create_app(
     app.state.knowledge_retriever = knowledge_retriever
     app.state.memory_store = memories
     app.state.style_store = styles
+    app.state.tool_registry = tools
 
     @app.get("/health")
     def health() -> dict[str, str]:

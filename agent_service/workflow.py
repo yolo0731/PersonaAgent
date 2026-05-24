@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
 from typing import Literal, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -20,6 +22,13 @@ from agent_service.review import (
 from agent_service.safety.verbatim_guard import LeakageMetrics, LeakageSource, VerbatimLeakageGuard
 from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
 from agent_service.style.style_store import StyleStore
+from agent_service.tools import (
+    ToolErrorEnvelope,
+    ToolExecutionResult,
+    ToolRegistry,
+    ToolRuntimeContext,
+    ToolTrace,
+)
 
 EXPECTED_NODE_ORDER = [
     "dialogue_policy",
@@ -40,6 +49,12 @@ class SafetyResult(BaseModel):
 class TraceEvent(BaseModel):
     node: str
     action: str
+
+
+@dataclass(frozen=True)
+class ParsedToolCommand:
+    name: str
+    payload: dict[str, object]
 
 
 class AgentState(TypedDict):
@@ -84,6 +99,7 @@ def build_agent_graph(
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
+    tool_registry: ToolRegistry | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
@@ -102,7 +118,14 @@ def build_agent_graph(
             style_top_k=style_top_k,
         ),
     )
-    graph.add_node("tool_router", _tool_router)
+    graph.add_node(
+        "tool_router",
+        lambda state: _tool_router(
+            state,
+            tool_registry=tool_registry,
+            memory_store=memory_store,
+        ),
+    )
     graph.add_node("generate_reply", _generate_reply)
     graph.add_node("safety_check", _safety_check)
     graph.add_node("finalize_reply", _finalize_reply)
@@ -130,6 +153,7 @@ def run_agent_workflow(
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
+    tool_registry: ToolRegistry | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
@@ -138,6 +162,7 @@ def run_agent_workflow(
         knowledge_retriever=knowledge_retriever,
         memory_store=memory_store,
         style_store=style_store,
+        tool_registry=tool_registry,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
@@ -152,6 +177,7 @@ def run_agent_chat(
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
+    tool_registry: ToolRegistry | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
@@ -161,6 +187,7 @@ def run_agent_chat(
         knowledge_retriever=knowledge_retriever,
         memory_store=memory_store,
         style_store=style_store,
+        tool_registry=tool_registry,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
@@ -335,11 +362,52 @@ def _retrieve_memory_context(
     }
 
 
-def _tool_router(state: AgentState) -> dict[str, object]:
+def _tool_router(
+    state: AgentState,
+    *,
+    tool_registry: ToolRegistry | None,
+    memory_store: MemoryStore | None,
+) -> dict[str, object]:
+    if not state["decision"].need_tool:
+        return {
+            "tool_calls": [],
+            "tool_results": [],
+            "trace": _append_trace(state, "tool_router", "mock_no_tools"),
+        }
+
+    if tool_registry is None:
+        result = _tool_error_result(
+            "tool_registry",
+            "tool_registry_not_configured",
+            "tool registry is not configured",
+        )
+        return {
+            "tool_calls": [],
+            "tool_results": [result.model_dump_json()],
+            "trace": _append_trace(state, "tool_router", "tool:tool_registry:error"),
+        }
+
+    parsed = _parse_tool_command(state["request"].text)
+    if isinstance(parsed, ToolExecutionResult):
+        return {
+            "tool_calls": [],
+            "tool_results": [parsed.model_dump_json()],
+            "trace": _append_trace(state, "tool_router", f"tool:{parsed.tool_name}:error"),
+        }
+
+    result = tool_registry.execute(
+        parsed.name,
+        parsed.payload,
+        ToolRuntimeContext(
+            request=state["request"],
+            memory_store=memory_store,
+            recent_context=tuple(state["retrieved_context"]),
+        ),
+    )
     return {
-        "tool_calls": [],
-        "tool_results": [],
-        "trace": _append_trace(state, "tool_router", "mock_no_tools"),
+        "tool_calls": [parsed.name],
+        "tool_results": [result.model_dump_json()],
+        "trace": _append_trace(state, "tool_router", f"tool:{parsed.name}:{result.trace.status}"),
     }
 
 
@@ -426,6 +494,52 @@ def _finalize_reply(state: AgentState) -> dict[str, object]:
 
 def _append_trace(state: AgentState, node: str, action: str) -> list[TraceEvent]:
     return [*state["trace"], TraceEvent(node=node, action=action)]
+
+
+def _parse_tool_command(text: str) -> ParsedToolCommand | ToolExecutionResult:
+    stripped = text.strip()
+    if stripped != "/tool" and not stripped.startswith("/tool "):
+        return _tool_error_result(
+            "tool_command",
+            "tool_command_parse_error",
+            "tool commands must use: /tool <tool_name> <json_payload>",
+        )
+
+    remainder = stripped[len("/tool") :].strip()
+    if not remainder:
+        return _tool_error_result(
+            "tool_command",
+            "tool_command_parse_error",
+            "missing tool name",
+        )
+
+    parts = remainder.split(maxsplit=1)
+    tool_name = parts[0]
+    payload_text = parts[1] if len(parts) == 2 else "{}"
+    try:
+        raw_payload = json.loads(payload_text)
+    except json.JSONDecodeError:
+        return _tool_error_result(
+            tool_name,
+            "tool_command_parse_error",
+            "tool payload must be valid JSON",
+        )
+    if not isinstance(raw_payload, dict):
+        return _tool_error_result(
+            tool_name,
+            "tool_command_parse_error",
+            "tool payload must be a JSON object",
+        )
+    return ParsedToolCommand(name=tool_name, payload=cast(dict[str, object], raw_payload))
+
+
+def _tool_error_result(tool_name: str, code: str, message: str) -> ToolExecutionResult:
+    return ToolExecutionResult(
+        tool_name=tool_name,
+        ok=False,
+        error=ToolErrorEnvelope(code=code, message=message, retryable=False),
+        trace=ToolTrace(tool_name=tool_name, status="error", duration_ms=0.0),
+    )
 
 
 def _style_sources_from_context(context: list[str]) -> list[LeakageSource]:
