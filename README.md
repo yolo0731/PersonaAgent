@@ -27,9 +27,10 @@ Current implemented foundation:
 - Authorized Style RAG pipeline with a dedicated Chroma style collection, `persona_id` / `consent_id` / `active` filtering, deterministic style feature extraction, insufficient-sample fallback, and workflow trace/context injection
 - Verbatim leakage guard with n-gram overlap, longest common substring ratio, PII second scan, style source-id checks, deterministic rewrite/block actions, workflow safety integration, and leakage metrics
 - Tool Calling framework with a registry, Pydantic input/output schemas, timeout trace, structured error envelopes, idempotency keys for side-effect tools, safe memory/profile/context tools, and workflow state integration
+- PersonaEngine with versioned `persona.yaml`, required identity notice, prompt templates, style instruction, safety boundaries, prompt metadata, and used context ids
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, persona, broader production safety policy, a human review UI, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, broader production safety policy, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -51,6 +52,7 @@ RAG_CHUNK_SIZE=500
 RAG_CHUNK_OVERLAP=50
 RAG_TOP_K=5
 STYLE_TOP_K=8
+PERSONA_CONFIG_PATH=agent_service/persona/persona.yaml
 LITEIM_HOST=127.0.0.1
 LITEIM_PORT=9000
 BOT_USERNAME=persona_agent_bot
@@ -90,6 +92,8 @@ OPENAI_BASE_URL=https://api.deepseek.com
 Step 16 adds a deterministic Verbatim Leakage Guard after draft generation and before finalization. Direct style-sample copies and PII leaks are blocked, high-overlap drafts are rewritten to a safe fallback, and normal style-similar but non-verbatim replies can pass.
 
 Step 17 adds a safe Tool Calling framework inside AgentService. Built-in tools include `save_memory`, `deactivate_memory`, `get_user_profile`, `summarize_recent_context`, `search_recent_context`, and `liteim_context_tool`. Side-effect tools require an `idempotency_key`, tool failures are returned as structured envelopes, and tools do not send LiteIM messages or access LiteIM MySQL/TCP.
+
+`PERSONA_CONFIG_PATH` points to the Step 18 persona and prompt template config. The default `agent_service/persona/persona.yaml` keeps identity notice, prompt version, style instruction, and safety boundaries out of Python code. `PersonaEngine` injects that identity notice into prompts and records prompt metadata plus `used_context_ids` in workflow state.
 
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
@@ -132,3 +136,5 @@ The Step 15 Authorized Style RAG tests verify `persona_id` isolation, `consent_i
 The Step 16 Verbatim Leakage Guard tests verify direct style-sample copy blocking, high-overlap rewrite, PII leak blocking, style source-id leak blocking, normal non-verbatim pass behavior, and workflow safety blocking from retrieved style context.
 
 The Step 17 Tool Calling tests verify registry schema validation, timeout trace recording, required built-in tool registration, `save_memory` idempotency, structured tool failure envelopes, and workflow tool-result state injection.
+
+The Step 18 PersonaEngine tests verify default `persona.yaml` loading, required identity notice validation, context-aware prompt assembly, style fallback behavior, prompt metadata, and prompt version workflow trace recording.

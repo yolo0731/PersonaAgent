@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     rag_top_k: int = Field(default=5, validation_alias="RAG_TOP_K")
     # 风格样本检索数量
     style_top_k: int = Field(default=8, validation_alias="STYLE_TOP_K")
+    # Persona 和 prompt 模板配置
+    persona_config_path: str = Field(
+        default="agent_service/persona/persona.yaml",
+        validation_alias="PERSONA_CONFIG_PATH",
+    )
 
     # 是否开启 echo 模式（返回 LLM 原始输出）
     echo_mode: bool = Field(default=True, validation_alias="ECHO_MODE")

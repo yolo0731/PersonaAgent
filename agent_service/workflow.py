@@ -9,8 +9,10 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from agent_service.dialogue_policy import DialogueDecision, DialogueIntent, DialoguePolicy
+from agent_service.llm.base import LLMMessage
 from agent_service.memory.memory_store import MemoryNotFoundError, MemoryStore
 from agent_service.memory.memory_tools import parse_forget_memory_id, parse_remember_content
+from agent_service.persona import PersonaEngine, PromptMetadata
 from agent_service.rag.documents import RetrievalTrace
 from agent_service.rag.knowledge_retriever import KnowledgeRetriever
 from agent_service.review import (
@@ -65,6 +67,8 @@ class AgentState(TypedDict):
     retrieval_trace: list[RetrievalTrace]
     tool_calls: list[str]
     tool_results: list[str]
+    prompt_messages: list[LLMMessage]
+    prompt_metadata: PromptMetadata | None
     draft: str
     safety_result: SafetyResult
     final_command: AgentReplyCommand
@@ -87,6 +91,8 @@ def make_initial_agent_state(request: ChatRequest) -> AgentState:
         retrieval_trace=[],
         tool_calls=[],
         tool_results=[],
+        prompt_messages=[],
+        prompt_metadata=None,
         draft="",
         safety_result=SafetyResult(blocked=False),
         final_command=no_reply_command(request, "not_finalized"),
@@ -100,11 +106,13 @@ def build_agent_graph(
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
+    persona_engine: PersonaEngine | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
+    effective_persona_engine = persona_engine or PersonaEngine.from_default()
     graph.add_node("dialogue_policy", _dialogue_policy)
     graph.add_node(
         "retrieve_context",
@@ -126,7 +134,10 @@ def build_agent_graph(
             memory_store=memory_store,
         ),
     )
-    graph.add_node("generate_reply", _generate_reply)
+    graph.add_node(
+        "generate_reply",
+        lambda state: _generate_reply(state, persona_engine=effective_persona_engine),
+    )
     graph.add_node("safety_check", _safety_check)
     graph.add_node("finalize_reply", _finalize_reply)
 
@@ -154,6 +165,7 @@ def run_agent_workflow(
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
+    persona_engine: PersonaEngine | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
@@ -163,6 +175,7 @@ def run_agent_workflow(
         memory_store=memory_store,
         style_store=style_store,
         tool_registry=tool_registry,
+        persona_engine=persona_engine,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
@@ -178,6 +191,7 @@ def run_agent_chat(
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
+    persona_engine: PersonaEngine | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
@@ -188,6 +202,7 @@ def run_agent_chat(
         memory_store=memory_store,
         style_store=style_store,
         tool_registry=tool_registry,
+        persona_engine=persona_engine,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
@@ -411,11 +426,23 @@ def _tool_router(
     }
 
 
-def _generate_reply(state: AgentState) -> dict[str, object]:
+def _generate_reply(state: AgentState, *, persona_engine: PersonaEngine) -> dict[str, object]:
+    prompt = persona_engine.build_prompt(
+        request=state["request"],
+        retrieved_context=state["retrieved_context"],
+        retrieval_trace=state["retrieval_trace"],
+        tool_results=state["tool_results"],
+    )
     draft = f"mock reply: {state['request'].text}"
     return {
+        "prompt_messages": prompt.messages,
+        "prompt_metadata": prompt.metadata,
         "draft": draft,
-        "trace": _append_trace(state, "generate_reply", "mock_draft"),
+        "trace": _append_trace(
+            state,
+            "generate_reply",
+            f"mock_draft;prompt_version={prompt.metadata.prompt_version}",
+        ),
     }
 
 

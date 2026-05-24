@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 
 from agent_service.config import Settings
 from agent_service.memory.memory_store import MemoryStore
+from agent_service.persona import PersonaEngine
 from agent_service.rag.embeddings import MockEmbeddingClient
 from agent_service.rag.knowledge_retriever import KnowledgeRetriever
 from agent_service.review import (
@@ -53,6 +54,7 @@ def create_app(
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
+    persona_engine: PersonaEngine | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings()
     app = FastAPI(title="PersonaAgent AgentService")
@@ -69,6 +71,7 @@ def create_app(
         top_k=app_settings.style_top_k,
     )
     tools = tool_registry or build_default_tool_registry()
+    persona = persona_engine or PersonaEngine.from_file(app_settings.persona_config_path)
     handler = chat_handler or (
         lambda request: run_agent_chat(
             request,
@@ -77,6 +80,7 @@ def create_app(
             memory_store=memories,
             style_store=styles,
             tool_registry=tools,
+            persona_engine=persona,
             rag_top_k=app_settings.rag_top_k,
             memory_top_k=app_settings.memory_top_k,
             style_top_k=app_settings.style_top_k,
@@ -91,6 +95,7 @@ def create_app(
     app.state.memory_store = memories
     app.state.style_store = styles
     app.state.tool_registry = tools
+    app.state.persona_engine = persona
 
     @app.get("/health")
     def health() -> dict[str, str]:
