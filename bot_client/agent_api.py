@@ -78,6 +78,7 @@ class AgentServiceMessageProcessor:
             reply_text=command.text,
             client_message_id=command.client_message_id,
             receiver_id=command.receiver_id,
+            dedup_key=command.dedup_key,
         )
 
 

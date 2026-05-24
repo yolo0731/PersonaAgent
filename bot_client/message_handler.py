@@ -8,7 +8,11 @@ from typing import Protocol
 
 from bot_client.bot_client import BotIdentity
 from bot_client.liteim_protocol import MessageType, Packet
-from bot_client.message_state import FriendPolicyTraceEvent, JsonMessageState
+from bot_client.message_state import (
+    AgentReplyTraceEvent,
+    FriendPolicyTraceEvent,
+    JsonMessageState,
+)
 from bot_client.protocol_parser import (
     IncomingMessage,
     parse_incoming_message,
@@ -23,6 +27,7 @@ class MessageProcessingResult:
     reply_text: str | None = None
     client_message_id: str | None = None
     receiver_id: int | None = None
+    dedup_key: str | None = None
 
 
 MessageProcessor = Callable[
@@ -118,11 +123,42 @@ class BotMessageHandler:
         if message.conversation_type == PRIVATE_CONVERSATION_TYPE:
             await self._client.send_read_ack(message.conversation_id, message.message_id)
         if result.reply_text:
-            await self._client.send_private_message(
-                result.receiver_id or message.sender_id,
-                result.reply_text,
-                result.client_message_id or self._new_client_message_id(),
-            )
+            receiver_id = result.receiver_id or message.sender_id
+            client_message_id = result.client_message_id or self._new_client_message_id()
+            if result.dedup_key and self._state.has_sent_agent_reply(result.dedup_key):
+                self._state.mark_processed(message.message_id)
+                return True
+            try:
+                await self._client.send_private_message(
+                    receiver_id,
+                    result.reply_text,
+                    client_message_id,
+                )
+            except Exception as exc:
+                if result.dedup_key:
+                    self._state.record_agent_reply_event(
+                        AgentReplyTraceEvent(
+                            status="failed",
+                            dedup_key=result.dedup_key,
+                            source_message_id=message.message_id,
+                            receiver_id=receiver_id,
+                            client_message_id=client_message_id,
+                            reason=str(exc),
+                        )
+                    )
+                self._state.mark_processed(message.message_id)
+                return True
+            if result.dedup_key:
+                self._state.record_agent_reply_event(
+                    AgentReplyTraceEvent(
+                        status="sent",
+                        dedup_key=result.dedup_key,
+                        source_message_id=message.message_id,
+                        receiver_id=receiver_id,
+                        client_message_id=client_message_id,
+                        reason="sent",
+                    )
+                )
         self._state.mark_processed(message.message_id)
         return True
 

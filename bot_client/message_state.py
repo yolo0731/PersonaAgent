@@ -15,6 +15,7 @@ FriendPolicyAction = Literal[
     "accepted_push",
     "blocked_non_friend_message",
 ]
+AgentReplyStatus = Literal["sent", "failed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,16 @@ class FriendPolicyTraceEvent:
     action: FriendPolicyAction
     user_id: int
     username: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AgentReplyTraceEvent:
+    status: AgentReplyStatus
+    dedup_key: str
+    source_message_id: int
+    receiver_id: int
+    client_message_id: str | None
     reason: str
 
 
@@ -33,6 +44,8 @@ class JsonMessageState:
         self._friends: dict[int, FriendProfile] = {}
         self._friend_policy_events: list[FriendPolicyTraceEvent] = []
         self._group_messages: list[IncomingMessage] = []
+        self._agent_reply_events: list[AgentReplyTraceEvent] = []
+        self._sent_agent_reply_dedup_keys: set[str] = set()
         self._load()
 
     @property
@@ -50,6 +63,10 @@ class JsonMessageState:
     @property
     def group_messages(self) -> list[IncomingMessage]:
         return list(self._group_messages)
+
+    @property
+    def agent_reply_events(self) -> list[AgentReplyTraceEvent]:
+        return list(self._agent_reply_events)
 
     def has_processed(self, message_id: int) -> bool:
         return message_id in self._processed_message_ids
@@ -79,6 +96,15 @@ class JsonMessageState:
 
     def record_group_message(self, message: IncomingMessage) -> None:
         self._group_messages.append(message)
+        self._save()
+
+    def has_sent_agent_reply(self, dedup_key: str) -> bool:
+        return dedup_key in self._sent_agent_reply_dedup_keys
+
+    def record_agent_reply_event(self, event: AgentReplyTraceEvent) -> None:
+        self._agent_reply_events.append(event)
+        if event.status == "sent":
+            self._sent_agent_reply_dedup_keys.add(event.dedup_key)
         self._save()
 
     def _load(self) -> None:
@@ -139,6 +165,25 @@ class JsonMessageState:
             for item in data.get("group_messages", [])
             if isinstance(item, dict)
         ]
+        self._agent_reply_events = [
+            AgentReplyTraceEvent(
+                status=item["status"],
+                dedup_key=str(item["dedup_key"]),
+                source_message_id=int(item["source_message_id"]),
+                receiver_id=int(item["receiver_id"]),
+                client_message_id=(
+                    str(item["client_message_id"])
+                    if item.get("client_message_id") is not None
+                    else None
+                ),
+                reason=str(item["reason"]),
+            )
+            for item in data.get("agent_reply_events", [])
+            if isinstance(item, dict)
+        ]
+        self._sent_agent_reply_dedup_keys = {
+            event.dedup_key for event in self._agent_reply_events if event.status == "sent"
+        }
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -184,6 +229,17 @@ class JsonMessageState:
                     "client_message_id": message.client_message_id,
                 }
                 for message in self._group_messages
+            ],
+            "agent_reply_events": [
+                {
+                    "status": event.status,
+                    "dedup_key": event.dedup_key,
+                    "source_message_id": event.source_message_id,
+                    "receiver_id": event.receiver_id,
+                    "client_message_id": event.client_message_id,
+                    "reason": event.reason,
+                }
+                for event in self._agent_reply_events
             ],
         }
         tmp_path = self._path.with_name(f"{self._path.name}.tmp")

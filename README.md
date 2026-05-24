@@ -31,6 +31,7 @@ Current implemented foundation:
 - GenerateReply LLM layer with `ReplyDraft`, structured-output retries, fallback drafts, model/token/latency trace, and context-id attribution
 - SafetyGuard policy layer with AI identity notice checks, impersonation blocking, unauthorized style mimicry blocking, privacy leak blocking, high-risk-domain human review routing, safety trace fields, and existing verbatim leakage reuse
 - FinalizeReply command layer with idempotent `AgentReplyCommand`, stable `dedup_key`, conversation metadata, trace summary, no-send reasons, and checkpointed final commands
+- BotClient AgentReplyCommand executor with LiteIM private-message sends, sent/failed trace records, sent-dedup retry protection, no-op command handling, and self-push suppression
 - pytest / pytest-asyncio / ruff / mypy configuration
 
 The project still does not implement a full production compliance system, final send-command enrichment, a human review UI, or evaluation.
@@ -104,6 +105,8 @@ Step 20 adds a deterministic `SafetyGuard` after draft generation. It blocks mis
 
 Step 21 finalizes every workflow result into an idempotent `AgentReplyCommand`. Send commands include `conversation_type`, `conversation_id`, `client_message_id`, stable `dedup_key`, and `trace_summary`; no-send commands keep the same source/dedup metadata with explicit reasons such as `safety_block`, `human_review_required`, or `human_review_pending`. AgentService still does not send LiteIM packets directly.
 
+Step 22 lets BotClient execute `AgentReplyCommand` over LiteIM. `AgentServiceMessageProcessor` passes command text, receiver, `client_message_id`, and `dedup_key` into `BotMessageHandler`; the handler sends `PrivateMessageRequest`, records `sent` or `failed` agent reply trace events in local state, skips duplicate sends when a sent `dedup_key` already exists, ignores no-op commands, and still ignores pushes sent by the bot itself.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -153,3 +156,5 @@ The Step 19 GenerateReply tests verify structured `ReplyDraft` generation, retry
 The Step 20 SafetyGuard tests verify AI identity notice enforcement, impersonation blocking, unauthorized style mimicry blocking, privacy leak blocking, direct style-sample copy blocking, high-risk Human Review routing, reject no-send behavior, and review edit resume behavior.
 
 The Step 21 FinalizeReply tests verify idempotent send commands, safety-block no-op commands, Human Review no-send commands, stable dedup keys, trace summaries, and checkpointed final commands.
+
+The Step 22 AgentReplyCommand execution tests verify BotClient LiteIM sends, sent trace recording, sent-dedup retry protection, AgentService no-op behavior, failed send trace recording, processed-message marking after failed sends, and self-push suppression.
