@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
+from agent_service.dialogue_policy import DialogueDecision, DialogueIntent, DialoguePolicy
 from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
 
 EXPECTED_NODE_ORDER = [
@@ -16,11 +17,6 @@ EXPECTED_NODE_ORDER = [
     "safety_check",
     "finalize_reply",
 ]
-
-
-class DialogueDecision(BaseModel):
-    should_reply: bool
-    reason: str
 
 
 class SafetyResult(BaseModel):
@@ -53,7 +49,11 @@ def make_initial_agent_state(request: ChatRequest) -> AgentState:
     return AgentState(
         request=request,
         run_id=request.run_id,
-        decision=DialogueDecision(should_reply=True, reason="not_evaluated"),
+        decision=DialogueDecision(
+            intent=DialogueIntent.SMALLTALK,
+            should_reply=True,
+            reason="not_evaluated",
+        ),
         retrieved_context=[],
         tool_calls=[],
         tool_results=[],
@@ -100,12 +100,10 @@ def run_agent_chat(request: ChatRequest) -> AgentReplyCommand:
 
 
 def _dialogue_policy(state: AgentState) -> dict[str, object]:
-    text = state["request"].text.strip()
-    should_reply = text != "/no-reply"
-    reason = "mock_should_reply" if should_reply else "mock_no_reply"
+    decision = DialoguePolicy().decide(state["request"])
     return {
-        "decision": DialogueDecision(should_reply=should_reply, reason=reason),
-        "trace": _append_trace(state, "dialogue_policy", reason),
+        "decision": decision,
+        "trace": _append_trace(state, "dialogue_policy", decision.reason),
     }
 
 
@@ -139,7 +137,7 @@ def _generate_reply(state: AgentState) -> dict[str, object]:
 
 
 def _safety_check(state: AgentState) -> dict[str, object]:
-    blocked = state["request"].text.strip().lower().startswith("/unsafe")
+    blocked = state["decision"].intent == DialogueIntent.UNSAFE
     result = SafetyResult(
         blocked=blocked,
         reason="mock_safety_block" if blocked else None,

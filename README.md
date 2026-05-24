@@ -19,9 +19,10 @@ Current implemented foundation:
 - AgentService `/chat` API with `ChatRequest`, `AgentReplyCommand`, structured error envelopes, and a mock reply handler
 - BotClient-side AgentService adapter that converts LiteIM messages into `/chat` requests and fails closed on AgentService timeout or malformed responses
 - LangGraph six-node Agent workflow skeleton with deterministic mock nodes, no-reply early finalize, safety-block no-send behavior, and per-node trace state
+- DialoguePolicy structured decision schema with mock structured-output validation, retry, fallback rules, intent classification, and need flags for knowledge, memory, style, tools, and human review
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM reply generation, RAG, real tools, persona, production safety policy, checkpointing, human review, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, RAG, real tools, persona, production safety policy, checkpointing, human review, or evaluation.
 
 ## Local Runtime Config
 
@@ -85,3 +86,5 @@ The Step 07 Echo runtime tests verify startup sync order, offline echo-once beha
 The Step 08 chat API adapter tests verify `/chat` mock replies, structured error envelopes, LiteIM message to `ChatRequest` mapping, AgentApiClient success/fail-closed behavior, and `should_send=false` no-send behavior.
 
 The Step 09 LangGraph workflow tests verify full six-node graph execution, no-reply early finalize, safety-block no-send behavior, node trace recording, and `/chat` default graph integration.
+
+The Step 10 DialoguePolicy tests verify the structured decision schema, all supported intents, private-chat default reply, group-chat no-op, mock structured-output retry, fallback rules, workflow routing, and `/chat` group no-op behavior.
