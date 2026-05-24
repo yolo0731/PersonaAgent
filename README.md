@@ -33,9 +33,10 @@ Current implemented foundation:
 - FinalizeReply command layer with idempotent `AgentReplyCommand`, stable `dedup_key`, conversation metadata, trace summary, no-send reasons, and checkpointed final commands
 - BotClient AgentReplyCommand executor with LiteIM private-message sends, sent/failed trace records, sent-dedup retry protection, no-op command handling, and self-push suppression
 - Evaluation suite with JSONL datasets, RAG/Memory Hit@5, Style Similarity, Verbatim Leakage Rate, Safety Violation Rate, Human Review Trigger Rate, latency, token-cost, LiteIM integration metrics, A/B variant reporting, and JSON/Markdown report output
+- Final architecture, demo guide, mock demo transcript, terminal-style screenshot asset, and 24 Step tutorials
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement a full production compliance system, a human review UI, a large-scale benchmark, or final demo packaging.
+The project still does not implement a full production compliance system, a human review UI, or a large-scale benchmark.
 
 ## Local Runtime Config
 
@@ -74,6 +75,8 @@ LLM_PROVIDER=deepseek
 LLM_MODEL=deepseek-v4-flash
 OPENAI_API_KEY=replace_with_deepseek_api_key
 OPENAI_BASE_URL=https://api.deepseek.com
+EVAL_PROMPT_TOKEN_COST_PER_1K=0
+EVAL_COMPLETION_TOKEN_COST_PER_1K=0
 ```
 
 `BotClient` connects to LiteIM as a normal user over the same TCP/TLV protocol. `AgentService` does not hold the LiteIM TCP connection and does not directly send LiteIM packets.
@@ -110,6 +113,8 @@ Step 22 lets BotClient execute `AgentReplyCommand` over LiteIM. `AgentServiceMes
 
 Step 23 adds the local evaluation suite under `agent_service/eval/` and checked-in mock datasets under `eval/datasets/`. The default mock eval does not require API keys and writes JSON plus Markdown reports to `eval/reports/`; real mode refuses to run without `OPENAI_API_KEY`.
 
+Step 24 finalizes the first-version handoff. See `docs/architecture.md` for architecture diagrams and `docs/demo/README.md` for the offline mock demo, optional real LiteIM smoke route, transcript output, screenshot asset, and eval report entrypoints.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -127,6 +132,14 @@ Real mode is intentionally gated by `OPENAI_API_KEY`:
 ```bash
 conda run -n agent python -m agent_service.eval --mode real --datasets-dir eval/datasets --output-dir eval/reports
 ```
+
+## Local Demo
+
+```bash
+conda run -n agent python scripts/run_mock_demo.py --output-dir docs/demo
+```
+
+The mock demo writes `docs/demo/mock_demo_transcript.md` and `docs/demo/mock_demo_transcript.json`. It covers Echo mode, Knowledge RAG, Memory RAG, Authorized Style RAG, Tool Calling, Safety block, Human Review, and Eval report without using real API keys or private data.
 
 ## Local Test
 
@@ -177,3 +190,5 @@ The Step 21 FinalizeReply tests verify idempotent send commands, safety-block no
 The Step 22 AgentReplyCommand execution tests verify BotClient LiteIM sends, sent trace recording, sent-dedup retry protection, AgentService no-op behavior, failed send trace recording, processed-message marking after failed sends, and self-push suppression.
 
 The Step 23 Evaluation tests verify default dataset loading, metric calculation, mock JSON/Markdown report writing, A/B variant reporting, and real-mode API key gating.
+
+The Step 24 Final Demo tests verify the offline mock demo transcript, final architecture/demo docs, and the complete set of 24 tutorial files.
