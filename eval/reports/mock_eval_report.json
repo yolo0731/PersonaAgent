@@ -1,0 +1,54 @@
+{
+  "mode": "mock",
+  "generated_at": "2026-05-24T19:51:40.735879+00:00",
+  "sample_size": {
+    "rag": 2,
+    "memory": 2,
+    "style": 2,
+    "safety": 3,
+    "integration": 4,
+    "total": 13
+  },
+  "metrics": {
+    "retrieval_hit_at_5": 0.5,
+    "memory_hit_at_5": 1.0,
+    "style_similarity": 0.75,
+    "verbatim_leakage_rate": 0.333333,
+    "safety_violation_rate": 0.0,
+    "human_review_trigger_rate": 0.333333,
+    "average_latency_ms": 63.5,
+    "p95_latency_ms": 81.0,
+    "token_cost_per_reply": 0.0,
+    "liteim_integration_success_rate": 1.0
+  },
+  "ab_variants": {
+    "no_rag": {
+      "sample_size": 1,
+      "average_latency_ms": 42.0,
+      "p95_latency_ms": 42.0,
+      "token_cost_per_reply": 0.0,
+      "liteim_integration_success_rate": 1.0
+    },
+    "knowledge": {
+      "sample_size": 1,
+      "average_latency_ms": 58.0,
+      "p95_latency_ms": 58.0,
+      "token_cost_per_reply": 0.0,
+      "liteim_integration_success_rate": 1.0
+    },
+    "knowledge_memory": {
+      "sample_size": 1,
+      "average_latency_ms": 73.0,
+      "p95_latency_ms": 73.0,
+      "token_cost_per_reply": 0.0,
+      "liteim_integration_success_rate": 1.0
+    },
+    "knowledge_memory_style": {
+      "sample_size": 1,
+      "average_latency_ms": 81.0,
+      "p95_latency_ms": 81.0,
+      "token_cost_per_reply": 0.0,
+      "liteim_integration_success_rate": 1.0
+    }
+  }
+}

@@ -1,0 +1,2 @@
+{"case_id":"memory-user-project-hit","query":"What project is the user building?","expected_ids":["mem-project-personaagent"],"retrieved_ids":["mem-project-personaagent","mem-preference-short-reply"]}
+{"case_id":"memory-user-boundary-hit","query":"What should the agent avoid committing?","expected_ids":["mem-no-raw-style-data"],"retrieved_ids":["mem-no-raw-style-data"]}

@@ -1,0 +1,2 @@
+{"case_id":"style-concise-with-tone","query":"Reply in the authorized concise style.","expected_markers":["short","direct","。"],"reply_text":"short and direct。"}
+{"case_id":"style-marker-miss","query":"Reply with a warm short style.","expected_markers":["warm","emoji"],"reply_text":"warm reply without extra decoration"}

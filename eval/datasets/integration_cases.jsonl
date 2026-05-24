@@ -1,0 +1,4 @@
+{"case_id":"integration-no-rag","variant":"no_rag","should_send":true,"sent":true,"failed":false,"duplicate_send_count":0,"latency_ms":42.0,"prompt_tokens":0,"completion_tokens":0,"request_text":"hello"}
+{"case_id":"integration-knowledge","variant":"knowledge","should_send":true,"sent":true,"failed":false,"duplicate_send_count":0,"latency_ms":58.0,"prompt_tokens":0,"completion_tokens":0,"request_text":"explain reactor"}
+{"case_id":"integration-knowledge-memory","variant":"knowledge_memory","should_send":true,"sent":true,"failed":false,"duplicate_send_count":0,"latency_ms":73.0,"prompt_tokens":0,"completion_tokens":0,"request_text":"remember my project"}
+{"case_id":"integration-knowledge-memory-style","variant":"knowledge_memory_style","should_send":true,"sent":true,"failed":false,"duplicate_send_count":0,"latency_ms":81.0,"prompt_tokens":0,"completion_tokens":0,"request_text":"reply in my style"}

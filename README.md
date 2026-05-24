@@ -32,9 +32,10 @@ Current implemented foundation:
 - SafetyGuard policy layer with AI identity notice checks, impersonation blocking, unauthorized style mimicry blocking, privacy leak blocking, high-risk-domain human review routing, safety trace fields, and existing verbatim leakage reuse
 - FinalizeReply command layer with idempotent `AgentReplyCommand`, stable `dedup_key`, conversation metadata, trace summary, no-send reasons, and checkpointed final commands
 - BotClient AgentReplyCommand executor with LiteIM private-message sends, sent/failed trace records, sent-dedup retry protection, no-op command handling, and self-push suppression
+- Evaluation suite with JSONL datasets, RAG/Memory Hit@5, Style Similarity, Verbatim Leakage Rate, Safety Violation Rate, Human Review Trigger Rate, latency, token-cost, LiteIM integration metrics, A/B variant reporting, and JSON/Markdown report output
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement a full production compliance system, final send-command enrichment, a human review UI, or evaluation.
+The project still does not implement a full production compliance system, a human review UI, a large-scale benchmark, or final demo packaging.
 
 ## Local Runtime Config
 
@@ -107,9 +108,25 @@ Step 21 finalizes every workflow result into an idempotent `AgentReplyCommand`. 
 
 Step 22 lets BotClient execute `AgentReplyCommand` over LiteIM. `AgentServiceMessageProcessor` passes command text, receiver, `client_message_id`, and `dedup_key` into `BotMessageHandler`; the handler sends `PrivateMessageRequest`, records `sent` or `failed` agent reply trace events in local state, skips duplicate sends when a sent `dedup_key` already exists, ignores no-op commands, and still ignores pushes sent by the bot itself.
 
+Step 23 adds the local evaluation suite under `agent_service/eval/` and checked-in mock datasets under `eval/datasets/`. The default mock eval does not require API keys and writes JSON plus Markdown reports to `eval/reports/`; real mode refuses to run without `OPENAI_API_KEY`.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
+
+## Local Eval
+
+```bash
+conda run -n agent python -m agent_service.eval --mode mock --datasets-dir eval/datasets --output-dir eval/reports
+```
+
+The checked-in mock report is `eval/reports/mock_eval_report.md`, with the machine-readable payload in `eval/reports/mock_eval_report.json`. That report is generated from the checked-in mock cases only; it is not a production benchmark claim.
+
+Real mode is intentionally gated by `OPENAI_API_KEY`:
+
+```bash
+conda run -n agent python -m agent_service.eval --mode real --datasets-dir eval/datasets --output-dir eval/reports
+```
 
 ## Local Test
 
@@ -158,3 +175,5 @@ The Step 20 SafetyGuard tests verify AI identity notice enforcement, impersonati
 The Step 21 FinalizeReply tests verify idempotent send commands, safety-block no-op commands, Human Review no-send commands, stable dedup keys, trace summaries, and checkpointed final commands.
 
 The Step 22 AgentReplyCommand execution tests verify BotClient LiteIM sends, sent trace recording, sent-dedup retry protection, AgentService no-op behavior, failed send trace recording, processed-message marking after failed sends, and self-push suppression.
+
+The Step 23 Evaluation tests verify default dataset loading, metric calculation, mock JSON/Markdown report writing, A/B variant reporting, and real-mode API key gating.

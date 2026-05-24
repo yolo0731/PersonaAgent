@@ -1,0 +1,2 @@
+{"case_id":"rag-liteim-reactor-hit","query":"How does LiteIM use epoll reactor threads?","expected_ids":["knowledge-liteim-reactor"],"retrieved_ids":["knowledge-liteim-reactor","knowledge-tlv-protocol","knowledge-storage-boundary"]}
+{"case_id":"rag-authorized-style-miss","query":"How should authorized style data be governed?","expected_ids":["knowledge-style-governance"],"retrieved_ids":["knowledge-tlv-protocol","knowledge-liteim-reactor"]}
