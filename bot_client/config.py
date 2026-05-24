@@ -34,6 +34,15 @@ class BotClientSettings(BaseSettings):
         validation_alias="BOT_REJECT_NON_ALLOWLISTED_FRIEND_REQUESTS",
     )
     echo_mode: bool = Field(default=True, validation_alias="ECHO_MODE")
+    agent_service_url: str = Field(
+        default="http://127.0.0.1:8088",
+        validation_alias="AGENT_SERVICE_URL",
+    )
+    agent_request_timeout_seconds: float = Field(
+        default=5.0,
+        validation_alias="AGENT_REQUEST_TIMEOUT_SECONDS",
+        gt=0.0,
+    )
 
     request_timeout_seconds: float = Field(
         default=5.0,

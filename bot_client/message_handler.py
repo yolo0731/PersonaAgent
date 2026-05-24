@@ -21,6 +21,8 @@ PRIVATE_CONVERSATION_TYPE = 1
 @dataclass(frozen=True, slots=True)
 class MessageProcessingResult:
     reply_text: str | None = None
+    client_message_id: str | None = None
+    receiver_id: int | None = None
 
 
 MessageProcessor = Callable[
@@ -117,9 +119,9 @@ class BotMessageHandler:
             await self._client.send_read_ack(message.conversation_id, message.message_id)
         if result.reply_text:
             await self._client.send_private_message(
-                message.sender_id,
+                result.receiver_id or message.sender_id,
                 result.reply_text,
-                self._new_client_message_id(),
+                result.client_message_id or self._new_client_message_id(),
             )
         self._state.mark_processed(message.message_id)
         return True
