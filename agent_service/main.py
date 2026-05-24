@@ -11,15 +11,15 @@ from agent_service.schemas import (
     ChatRequest,
     ChatResponse,
     ErrorEnvelope,
-    mock_reply_command,
     no_reply_command,
 )
+from agent_service.workflow import run_agent_chat
 
 ChatHandler = Callable[[ChatRequest], AgentReplyCommand | Awaitable[AgentReplyCommand]]
 
 
 async def _default_chat_handler(request: ChatRequest) -> AgentReplyCommand:
-    return mock_reply_command(request)
+    return run_agent_chat(request)
 
 
 async def _call_chat_handler(

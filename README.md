@@ -18,9 +18,10 @@ Current implemented foundation:
 - Reliable Echo mode runtime that connects/login, syncs friends, processes offline messages, consumes live pushes, replies to private chats through `ClientMessageId`, and records group pushes without replying
 - AgentService `/chat` API with `ChatRequest`, `AgentReplyCommand`, structured error envelopes, and a mock reply handler
 - BotClient-side AgentService adapter that converts LiteIM messages into `/chat` requests and fails closed on AgentService timeout or malformed responses
+- LangGraph six-node Agent workflow skeleton with deterministic mock nodes, no-reply early finalize, safety-block no-send behavior, and per-node trace state
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement LangGraph workflow, RAG, tools, persona, safety, real reply generation, or evaluation.
+The project still does not implement real LLM reply generation, RAG, real tools, persona, production safety policy, checkpointing, human review, or evaluation.
 
 ## Local Runtime Config
 
@@ -82,3 +83,5 @@ The Step 06 friend policy tests use protocol packets and fake BotClient objects 
 The Step 07 Echo runtime tests verify startup sync order, offline echo-once behavior, live private echo with ACK/read/reply, restart deduplication, echo disabled behavior, and group push record-without-reply behavior.
 
 The Step 08 chat API adapter tests verify `/chat` mock replies, structured error envelopes, LiteIM message to `ChatRequest` mapping, AgentApiClient success/fail-closed behavior, and `should_send=false` no-send behavior.
+
+The Step 09 LangGraph workflow tests verify full six-node graph execution, no-reply early finalize, safety-block no-send behavior, node trace recording, and `/chat` default graph integration.
