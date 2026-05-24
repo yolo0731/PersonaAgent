@@ -25,9 +25,10 @@ Current implemented foundation:
 - Memory RAG pipeline with SQLite memory records, Chroma memory collection, user-scoped retrieval, active filtering, `/remember`, `/forget`, and workflow context injection
 - Authorized data governance pipeline with consent manifest validation, PII redaction, processed style sample import, revocation-aware active status, ignored raw data folders, and import reports
 - Authorized Style RAG pipeline with a dedicated Chroma style collection, `persona_id` / `consent_id` / `active` filtering, deterministic style feature extraction, insufficient-sample fallback, and workflow trace/context injection
+- Verbatim leakage guard with n-gram overlap, longest common substring ratio, PII second scan, style source-id checks, deterministic rewrite/block actions, workflow safety integration, and leakage metrics
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, real tools, persona, production safety policy, verbatim leakage guard, a human review UI, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, real tools, persona, broader production safety policy, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -85,6 +86,8 @@ OPENAI_BASE_URL=https://api.deepseek.com
 
 `STYLE_TOP_K` configures the Step 15 Authorized Style RAG retrieval limit. Style retrieval uses the `style` collection under `CHROMA_PATH`, derives the target `persona_id` from `sender_id` for current-user style requests, and only injects processed, redacted style examples into workflow context.
 
+Step 16 adds a deterministic Verbatim Leakage Guard after draft generation and before finalization. Direct style-sample copies and PII leaks are blocked, high-overlap drafts are rewritten to a safe fallback, and normal style-similar but non-verbatim replies can pass.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -122,3 +125,5 @@ The Step 13 Memory RAG tests verify memory save/list/deactivate fields, user-sco
 The Step 14 governance tests verify no-consent rejection, forbidden usage rejection, PII redaction before processed sample writing, revoked-consent inactive samples, import report generation, and the safe authorized-style data layout.
 
 The Step 15 Authorized Style RAG tests verify `persona_id` isolation, `consent_id` filtering, `active=false` exclusion, deterministic style feature stats, insufficient-sample fallback, and workflow style trace/context injection.
+
+The Step 16 Verbatim Leakage Guard tests verify direct style-sample copy blocking, high-overlap rewrite, PII leak blocking, style source-id leak blocking, normal non-verbatim pass behavior, and workflow safety blocking from retrieved style context.

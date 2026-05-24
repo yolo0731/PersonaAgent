@@ -17,6 +17,7 @@ from agent_service.review import (
     make_thread_id,
     resume_human_review,
 )
+from agent_service.safety.verbatim_guard import LeakageMetrics, LeakageSource, VerbatimLeakageGuard
 from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
 from agent_service.style.style_store import StyleStore
 
@@ -33,6 +34,7 @@ EXPECTED_NODE_ORDER = [
 class SafetyResult(BaseModel):
     blocked: bool
     reason: str | None = None
+    metrics: LeakageMetrics | None = None
 
 
 class TraceEvent(BaseModel):
@@ -250,7 +252,7 @@ def _retrieve_style_context(
     return {
         "retrieved_context": [
             f"style_summary: {retrieval.summary.text}",
-            *[f"style_example: {sample.text}" for sample in retrieval.results],
+            *[f"style_example:{sample.sample_id}: {sample.text}" for sample in retrieval.results],
         ],
         "retrieval_trace": [retrieval.trace],
         "trace": _append_trace(
@@ -350,14 +352,50 @@ def _generate_reply(state: AgentState) -> dict[str, object]:
 
 
 def _safety_check(state: AgentState) -> dict[str, object]:
-    blocked = state["decision"].intent == DialogueIntent.UNSAFE
-    result = SafetyResult(
-        blocked=blocked,
-        reason="mock_safety_block" if blocked else None,
-    )
+    if state["decision"].intent == DialogueIntent.UNSAFE:
+        result = SafetyResult(blocked=True, reason="mock_safety_block")
+        return {
+            "safety_result": result,
+            "trace": _append_trace(state, "safety_check", "blocked"),
+        }
+
+    style_sources = _style_sources_from_context(state["retrieved_context"])
+    if style_sources:
+        assessment = VerbatimLeakageGuard().assess(state["draft"], style_sources)
+        if assessment.action == "block":
+            result = SafetyResult(
+                blocked=True,
+                reason=assessment.reason,
+                metrics=assessment.metrics,
+            )
+            return {
+                "safety_result": result,
+                "trace": _append_trace(
+                    state,
+                    "safety_check",
+                    f"blocked:{assessment.reason}",
+                ),
+            }
+        if assessment.action == "rewrite":
+            result = SafetyResult(
+                blocked=False,
+                reason=assessment.reason,
+                metrics=assessment.metrics,
+            )
+            return {
+                "draft": assessment.safe_text,
+                "safety_result": result,
+                "trace": _append_trace(
+                    state,
+                    "safety_check",
+                    f"rewritten:{assessment.reason}",
+                ),
+            }
+
+    result = SafetyResult(blocked=False)
     return {
         "safety_result": result,
-        "trace": _append_trace(state, "safety_check", "blocked" if blocked else "passed"),
+        "trace": _append_trace(state, "safety_check", "passed"),
     }
 
 
@@ -388,3 +426,16 @@ def _finalize_reply(state: AgentState) -> dict[str, object]:
 
 def _append_trace(state: AgentState, node: str, action: str) -> list[TraceEvent]:
     return [*state["trace"], TraceEvent(node=node, action=action)]
+
+
+def _style_sources_from_context(context: list[str]) -> list[LeakageSource]:
+    sources: list[LeakageSource] = []
+    prefix = "style_example:"
+    for item in context:
+        if not item.startswith(prefix):
+            continue
+        payload = item[len(prefix) :]
+        source_id, separator, text = payload.partition(":")
+        if separator and source_id.strip() and text.strip():
+            sources.append(LeakageSource(source_id=source_id.strip(), text=text.strip()))
+    return sources
