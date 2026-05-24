@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, HTTPException
 
 from agent_service.config import Settings
+from agent_service.llm import LLMClient, MockLLMClient, OpenAILLMClient
 from agent_service.memory.memory_store import MemoryStore
 from agent_service.persona import PersonaEngine
 from agent_service.rag.embeddings import MockEmbeddingClient
@@ -55,6 +56,7 @@ def create_app(
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
     persona_engine: PersonaEngine | None = None,
+    llm_client: LLMClient | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings()
     app = FastAPI(title="PersonaAgent AgentService")
@@ -72,6 +74,7 @@ def create_app(
     )
     tools = tool_registry or build_default_tool_registry()
     persona = persona_engine or PersonaEngine.from_file(app_settings.persona_config_path)
+    llm = llm_client or _build_llm_client(app_settings)
     handler = chat_handler or (
         lambda request: run_agent_chat(
             request,
@@ -81,6 +84,7 @@ def create_app(
             style_store=styles,
             tool_registry=tools,
             persona_engine=persona,
+            llm_client=llm,
             rag_top_k=app_settings.rag_top_k,
             memory_top_k=app_settings.memory_top_k,
             style_top_k=app_settings.style_top_k,
@@ -96,6 +100,7 @@ def create_app(
     app.state.style_store = styles
     app.state.tool_registry = tools
     app.state.persona_engine = persona
+    app.state.llm_client = llm
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -154,6 +159,16 @@ def create_app(
         return ChatResponse(ok=True, command=command)
 
     return app
+
+
+def _build_llm_client(settings: Settings) -> LLMClient:
+    if settings.llm_provider == "mock":
+        return MockLLMClient(model=settings.llm_model)
+    return OpenAILLMClient(
+        api_key=settings.openai_api_key,
+        model=settings.llm_model,
+        base_url=settings.openai_base_url,
+    )
 
 
 app = create_app()

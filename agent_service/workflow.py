@@ -9,6 +9,8 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from agent_service.dialogue_policy import DialogueDecision, DialogueIntent, DialoguePolicy
+from agent_service.generation import GenerationTrace, LLMReplyGenerator, ReplyDraft
+from agent_service.llm import LLMClient
 from agent_service.llm.base import LLMMessage
 from agent_service.memory.memory_store import MemoryNotFoundError, MemoryStore
 from agent_service.memory.memory_tools import parse_forget_memory_id, parse_remember_content
@@ -69,6 +71,8 @@ class AgentState(TypedDict):
     tool_results: list[str]
     prompt_messages: list[LLMMessage]
     prompt_metadata: PromptMetadata | None
+    reply_draft: ReplyDraft | None
+    generation_trace: GenerationTrace | None
     draft: str
     safety_result: SafetyResult
     final_command: AgentReplyCommand
@@ -93,6 +97,8 @@ def make_initial_agent_state(request: ChatRequest) -> AgentState:
         tool_results=[],
         prompt_messages=[],
         prompt_metadata=None,
+        reply_draft=None,
+        generation_trace=None,
         draft="",
         safety_result=SafetyResult(blocked=False),
         final_command=no_reply_command(request, "not_finalized"),
@@ -107,12 +113,18 @@ def build_agent_graph(
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
     persona_engine: PersonaEngine | None = None,
+    llm_client: LLMClient | None = None,
+    generation_max_retries: int = 2,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     effective_persona_engine = persona_engine or PersonaEngine.from_default()
+    reply_generator = LLMReplyGenerator(
+        llm_client=llm_client,
+        max_retries=generation_max_retries,
+    )
     graph.add_node("dialogue_policy", _dialogue_policy)
     graph.add_node(
         "retrieve_context",
@@ -136,7 +148,11 @@ def build_agent_graph(
     )
     graph.add_node(
         "generate_reply",
-        lambda state: _generate_reply(state, persona_engine=effective_persona_engine),
+        lambda state: _generate_reply(
+            state,
+            persona_engine=effective_persona_engine,
+            reply_generator=reply_generator,
+        ),
     )
     graph.add_node("safety_check", _safety_check)
     graph.add_node("finalize_reply", _finalize_reply)
@@ -166,6 +182,8 @@ def run_agent_workflow(
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
     persona_engine: PersonaEngine | None = None,
+    llm_client: LLMClient | None = None,
+    generation_max_retries: int = 2,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
@@ -176,6 +194,8 @@ def run_agent_workflow(
         style_store=style_store,
         tool_registry=tool_registry,
         persona_engine=persona_engine,
+        llm_client=llm_client,
+        generation_max_retries=generation_max_retries,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
@@ -192,6 +212,8 @@ def run_agent_chat(
     style_store: StyleStore | None = None,
     tool_registry: ToolRegistry | None = None,
     persona_engine: PersonaEngine | None = None,
+    llm_client: LLMClient | None = None,
+    generation_max_retries: int = 2,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
@@ -203,6 +225,8 @@ def run_agent_chat(
         style_store=style_store,
         tool_registry=tool_registry,
         persona_engine=persona_engine,
+        llm_client=llm_client,
+        generation_max_retries=generation_max_retries,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
@@ -426,22 +450,36 @@ def _tool_router(
     }
 
 
-def _generate_reply(state: AgentState, *, persona_engine: PersonaEngine) -> dict[str, object]:
+def _generate_reply(
+    state: AgentState,
+    *,
+    persona_engine: PersonaEngine,
+    reply_generator: LLMReplyGenerator,
+) -> dict[str, object]:
     prompt = persona_engine.build_prompt(
         request=state["request"],
         retrieved_context=state["retrieved_context"],
         retrieval_trace=state["retrieval_trace"],
         tool_results=state["tool_results"],
     )
-    draft = f"mock reply: {state['request'].text}"
+    generation = reply_generator.generate(request=state["request"], prompt=prompt)
     return {
         "prompt_messages": prompt.messages,
         "prompt_metadata": prompt.metadata,
-        "draft": draft,
+        "reply_draft": generation.draft,
+        "generation_trace": generation.trace,
+        "draft": generation.draft.reply_text,
         "trace": _append_trace(
             state,
             "generate_reply",
-            f"mock_draft;prompt_version={prompt.metadata.prompt_version}",
+            (
+                f"model={generation.trace.model};"
+                f"prompt_version={prompt.metadata.prompt_version};"
+                f"prompt_tokens={generation.trace.prompt_tokens};"
+                f"completion_tokens={generation.trace.completion_tokens};"
+                f"latency_ms={generation.trace.latency_ms:.3f};"
+                f"fallback={generation.trace.fallback_used}"
+            ),
         ),
     }
 

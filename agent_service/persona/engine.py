@@ -43,6 +43,9 @@ class PromptMetadata(BaseModel):
     prompt_version: str
     persona_id: str
     used_context_ids: list[str] = Field(default_factory=list)
+    used_knowledge_ids: list[str] = Field(default_factory=list)
+    used_memory_ids: list[str] = Field(default_factory=list)
+    used_style_sample_ids: list[str] = Field(default_factory=list)
     style_fallback_used: bool = False
 
 
@@ -83,7 +86,7 @@ class PersonaEngine:
         tool_results: Sequence[str] = (),
     ) -> PersonaPrompt:
         context = _PromptContext.from_retrieved_context(retrieved_context, tool_results)
-        used_context_ids = _used_context_ids(retrieval_trace)
+        used_context = _used_context_ids(retrieval_trace)
         context_block = context.to_prompt_block(self.config.style_instruction)
         values = {
             "display_name": self.config.display_name,
@@ -112,7 +115,10 @@ class PersonaEngine:
             metadata=PromptMetadata(
                 prompt_version=self.config.prompt_version,
                 persona_id=self.config.persona_id,
-                used_context_ids=used_context_ids,
+                used_context_ids=used_context.all_ids,
+                used_knowledge_ids=used_context.knowledge_ids,
+                used_memory_ids=used_context.memory_ids,
+                used_style_sample_ids=used_context.style_sample_ids,
                 style_fallback_used=context.style_fallback_used,
             ),
         )
@@ -170,6 +176,13 @@ class _PromptContext(BaseModel):
         return [*self.style_summaries, style_instruction]
 
 
+class _UsedContextIds(BaseModel):
+    all_ids: list[str] = Field(default_factory=list)
+    knowledge_ids: list[str] = Field(default_factory=list)
+    memory_ids: list[str] = Field(default_factory=list)
+    style_sample_ids: list[str] = Field(default_factory=list)
+
+
 def _strip_prefix(value: str, prefix: str) -> str:
     return value[len(prefix) :].strip()
 
@@ -184,12 +197,26 @@ def _bullet_list(lines: Sequence[str]) -> str:
     return "\n".join(f"- {line}" for line in lines if line.strip())
 
 
-def _used_context_ids(retrieval_trace: Sequence[RetrievalTrace]) -> list[str]:
-    used: list[str] = []
+def _used_context_ids(retrieval_trace: Sequence[RetrievalTrace]) -> _UsedContextIds:
+    all_ids: list[str] = []
+    knowledge_ids: list[str] = []
+    memory_ids: list[str] = []
+    style_sample_ids: list[str] = []
     seen: set[str] = set()
     for trace in retrieval_trace:
         for context_id in trace.chunk_ids:
             if context_id not in seen:
                 seen.add(context_id)
-                used.append(context_id)
-    return used
+                all_ids.append(context_id)
+            if trace.collection == "knowledge" and context_id not in knowledge_ids:
+                knowledge_ids.append(context_id)
+            elif trace.collection == "memory" and context_id not in memory_ids:
+                memory_ids.append(context_id)
+            elif trace.collection == "style" and context_id not in style_sample_ids:
+                style_sample_ids.append(context_id)
+    return _UsedContextIds(
+        all_ids=all_ids,
+        knowledge_ids=knowledge_ids,
+        memory_ids=memory_ids,
+        style_sample_ids=style_sample_ids,
+    )

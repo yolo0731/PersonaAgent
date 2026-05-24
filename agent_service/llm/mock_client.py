@@ -46,7 +46,7 @@ class MockLLMClient(LLMClient):
             (message.content for message in reversed(messages) if message.role == "user"),
             "",
         )
-        return {"reply_text": last_user_message or "mock reply"}
+        return {"reply_text": f"mock reply: {_clean_user_message(last_user_message)}"}
 
     def _text_payload(self, messages: Sequence[LLMMessage]) -> str:
         if isinstance(self._fixed_response, str):
@@ -70,3 +70,10 @@ class MockLLMClient(LLMClient):
             if value is not None:
                 return str(value)
         return structured.model_dump_json()
+
+
+def _clean_user_message(content: str) -> str:
+    marker = "User message:"
+    if marker in content:
+        return content.split(marker, maxsplit=1)[1].strip()
+    return content or "mock reply"

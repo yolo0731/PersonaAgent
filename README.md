@@ -28,9 +28,10 @@ Current implemented foundation:
 - Verbatim leakage guard with n-gram overlap, longest common substring ratio, PII second scan, style source-id checks, deterministic rewrite/block actions, workflow safety integration, and leakage metrics
 - Tool Calling framework with a registry, Pydantic input/output schemas, timeout trace, structured error envelopes, idempotency keys for side-effect tools, safe memory/profile/context tools, and workflow state integration
 - PersonaEngine with versioned `persona.yaml`, required identity notice, prompt templates, style instruction, safety boundaries, prompt metadata, and used context ids
+- GenerateReply LLM layer with `ReplyDraft`, structured-output retries, fallback drafts, model/token/latency trace, and context-id attribution
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, broader production safety policy, a human review UI, or evaluation.
+The project still does not implement broader production safety policy, final send-command enrichment, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -95,6 +96,8 @@ Step 17 adds a safe Tool Calling framework inside AgentService. Built-in tools i
 
 `PERSONA_CONFIG_PATH` points to the Step 18 persona and prompt template config. The default `agent_service/persona/persona.yaml` keeps identity notice, prompt version, style instruction, and safety boundaries out of Python code. `PersonaEngine` injects that identity notice into prompts and records prompt metadata plus `used_context_ids` in workflow state.
 
+Step 19 uses the configured `LLM_PROVIDER` and `LLM_MODEL` in `generate_reply`. `mock` mode stays offline and deterministic for unit tests. `deepseek` / OpenAI-compatible mode uses `OpenAILLMClient`; model errors, invalid structured output, or repeated failures become a fallback draft and are recorded in generation trace.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -138,3 +141,5 @@ The Step 16 Verbatim Leakage Guard tests verify direct style-sample copy blockin
 The Step 17 Tool Calling tests verify registry schema validation, timeout trace recording, required built-in tool registration, `save_memory` idempotency, structured tool failure envelopes, and workflow tool-result state injection.
 
 The Step 18 PersonaEngine tests verify default `persona.yaml` loading, required identity notice validation, context-aware prompt assembly, style fallback behavior, prompt metadata, and prompt version workflow trace recording.
+
+The Step 19 GenerateReply tests verify structured `ReplyDraft` generation, retry on non-structured output, fallback after repeated failures, token/latency trace, context id attribution, and workflow integration.
