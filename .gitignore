@@ -13,5 +13,6 @@ __pycache__/
 htmlcov/
 
 data/memory/
-data/chroma/
+data/chroma/*
+!data/chroma/.gitignore
 data/authorized_style_records/raw/

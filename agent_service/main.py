@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, HTTPException
 
 from agent_service.config import Settings
+from agent_service.rag.knowledge_retriever import KnowledgeRetriever
 from agent_service.review import (
     ApproveReviewRequest,
     EditReviewRequest,
@@ -43,18 +44,25 @@ def create_app(
     settings: Settings | None = None,
     chat_handler: ChatHandler | None = None,
     review_store: HumanReviewStore | None = None,
+    knowledge_retriever: KnowledgeRetriever | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings()
     app = FastAPI(title="PersonaAgent AgentService")
     store = review_store or HumanReviewStore(app_settings.agent_state_db_path)
     handler = chat_handler or (
-        lambda request: run_agent_chat(request, review_store=store)
+        lambda request: run_agent_chat(
+            request,
+            review_store=store,
+            knowledge_retriever=knowledge_retriever,
+            rag_top_k=app_settings.rag_top_k,
+        )
     )
 
     # Settings 挂在 app.state 上，后续 /chat、LLM、trace 都从这里读取运行配置。
     app.state.settings = app_settings
     app.state.chat_handler = handler
     app.state.review_store = store
+    app.state.knowledge_retriever = knowledge_retriever
 
     @app.get("/health")
     def health() -> dict[str, str]:

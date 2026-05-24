@@ -21,9 +21,10 @@ Current implemented foundation:
 - LangGraph six-node Agent workflow skeleton with deterministic mock nodes, no-reply early finalize, safety-block no-send behavior, and per-node trace state
 - DialoguePolicy structured decision schema with mock structured-output validation, retry, fallback rules, intent classification, and need flags for knowledge, memory, style, tools, and human review
 - SQLite-backed checkpoint and Human Review skeleton with pending review storage, approve/reject/edit/resume APIs, thread IDs, and idempotent resume no-send behavior
+- Knowledge RAG pipeline with document loading, recursive chunking, mock embeddings, persistent Chroma collection, active metadata filtering, top-k retrieval, and workflow trace integration
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, RAG, real tools, persona, production safety policy, a human review UI, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, Memory RAG, Authorized Style RAG, real tools, persona, production safety policy, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -37,6 +38,11 @@ AGENT_PORT=8088
 AGENT_SERVICE_URL=http://127.0.0.1:8088
 AGENT_REQUEST_TIMEOUT_SECONDS=5.0
 AGENT_STATE_DB_PATH=data/agent_state/state.sqlite3
+CHROMA_PATH=data/chroma
+KNOWLEDGE_DOCS_PATH=data/knowledge_docs
+RAG_CHUNK_SIZE=500
+RAG_CHUNK_OVERLAP=50
+RAG_TOP_K=5
 LITEIM_HOST=127.0.0.1
 LITEIM_PORT=9000
 BOT_USERNAME=persona_agent_bot
@@ -64,6 +70,8 @@ OPENAI_BASE_URL=https://api.deepseek.com
 `AGENT_SERVICE_URL` and `AGENT_REQUEST_TIMEOUT_SECONDS` configure the Step 08 BotClient adapter. If AgentService is unavailable, times out, returns an HTTP error, or returns a malformed response, the adapter returns `should_send=false` and BotClient does not send a LiteIM message.
 
 `AGENT_STATE_DB_PATH` stores AgentService checkpoint and Human Review state. Keep the real SQLite database ignored; only `data/agent_state/.gitignore` is tracked.
+
+`CHROMA_PATH`, `KNOWLEDGE_DOCS_PATH`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and `RAG_TOP_K` configure the Step 12 Knowledge RAG pipeline. Keep local Chroma data ignored; only `data/chroma/.gitignore` is tracked. Default tests use `MockEmbeddingClient` and do not call a real embedding API.
 
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
@@ -94,3 +102,5 @@ The Step 09 LangGraph workflow tests verify full six-node graph execution, no-re
 The Step 10 DialoguePolicy tests verify the structured decision schema, all supported intents, private-chat default reply, group-chat no-op, mock structured-output retry, fallback rules, workflow routing, and `/chat` group no-op behavior.
 
 The Step 11 Human Review tests verify thread ID construction, high-risk pending review and checkpoint persistence, approve/edit/resume, reject/resume no-op, and repeated resume no-send behavior.
+
+The Step 12 Knowledge RAG tests verify document loading, required metadata, Chroma persistence, top-k retrieval, active metadata filtering, empty collection behavior, and workflow context/trace integration.

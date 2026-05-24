@@ -7,6 +7,8 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from agent_service.dialogue_policy import DialogueDecision, DialogueIntent, DialoguePolicy
+from agent_service.rag.documents import RetrievalTrace
+from agent_service.rag.knowledge_retriever import KnowledgeRetriever
 from agent_service.review import (
     HumanReviewStore,
     ReviewStatus,
@@ -40,6 +42,7 @@ class AgentState(TypedDict):
     run_id: str
     decision: DialogueDecision
     retrieved_context: list[str]
+    retrieval_trace: list[RetrievalTrace]
     tool_calls: list[str]
     tool_results: list[str]
     draft: str
@@ -61,6 +64,7 @@ def make_initial_agent_state(request: ChatRequest) -> AgentState:
             reason="not_evaluated",
         ),
         retrieved_context=[],
+        retrieval_trace=[],
         tool_calls=[],
         tool_results=[],
         draft="",
@@ -70,10 +74,21 @@ def make_initial_agent_state(request: ChatRequest) -> AgentState:
     )
 
 
-def build_agent_graph() -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
+def build_agent_graph(
+    *,
+    knowledge_retriever: KnowledgeRetriever | None = None,
+    rag_top_k: int = 5,
+) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("dialogue_policy", _dialogue_policy)
-    graph.add_node("retrieve_context", _retrieve_context)
+    graph.add_node(
+        "retrieve_context",
+        lambda state: _retrieve_context(
+            state,
+            knowledge_retriever=knowledge_retriever,
+            rag_top_k=rag_top_k,
+        ),
+    )
     graph.add_node("tool_router", _tool_router)
     graph.add_node("generate_reply", _generate_reply)
     graph.add_node("safety_check", _safety_check)
@@ -96,8 +111,16 @@ def build_agent_graph() -> CompiledStateGraph[AgentState, None, AgentState, Agen
     return graph.compile()
 
 
-def run_agent_workflow(request: ChatRequest) -> AgentState:
-    final_state = build_agent_graph().invoke(make_initial_agent_state(request))
+def run_agent_workflow(
+    request: ChatRequest,
+    *,
+    knowledge_retriever: KnowledgeRetriever | None = None,
+    rag_top_k: int = 5,
+) -> AgentState:
+    final_state = build_agent_graph(
+        knowledge_retriever=knowledge_retriever,
+        rag_top_k=rag_top_k,
+    ).invoke(make_initial_agent_state(request))
     return cast(AgentState, final_state)
 
 
@@ -105,8 +128,14 @@ def run_agent_chat(
     request: ChatRequest,
     *,
     review_store: HumanReviewStore | None = None,
+    knowledge_retriever: KnowledgeRetriever | None = None,
+    rag_top_k: int = 5,
 ) -> AgentReplyCommand:
-    state = run_agent_workflow(request)
+    state = run_agent_workflow(
+        request,
+        knowledge_retriever=knowledge_retriever,
+        rag_top_k=rag_top_k,
+    )
     if review_store is not None and state["decision"].need_human_review:
         thread_id = make_thread_id(request)
         existing = review_store.get_review(thread_id)
@@ -135,9 +164,26 @@ def _route_after_dialogue_policy(state: AgentState) -> GraphRoute:
     return "finalize_reply"
 
 
-def _retrieve_context(state: AgentState) -> dict[str, object]:
+def _retrieve_context(
+    state: AgentState,
+    *,
+    knowledge_retriever: KnowledgeRetriever | None,
+    rag_top_k: int,
+) -> dict[str, object]:
+    if state["decision"].need_knowledge and knowledge_retriever is not None:
+        retrieval = knowledge_retriever.retrieve(state["request"].text, top_k=rag_top_k)
+        return {
+            "retrieved_context": [result.text for result in retrieval.results],
+            "retrieval_trace": [retrieval.trace],
+            "trace": _append_trace(
+                state,
+                "retrieve_context",
+                f"knowledge_top_k={retrieval.trace.result_count}",
+            ),
+        }
     return {
         "retrieved_context": [],
+        "retrieval_trace": [],
         "trace": _append_trace(state, "retrieve_context", "mock_empty_context"),
     }
 

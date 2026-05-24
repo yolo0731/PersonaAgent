@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     )
     # 向量数据库类型
     vector_db: str = Field(default="chroma", validation_alias="VECTOR_DB")
+    chroma_path: str = Field(default="data/chroma", validation_alias="CHROMA_PATH")
+    knowledge_docs_path: str = Field(
+        default="data/knowledge_docs",
+        validation_alias="KNOWLEDGE_DOCS_PATH",
+    )
+    rag_chunk_size: int = Field(default=500, validation_alias="RAG_CHUNK_SIZE")
+    rag_chunk_overlap: int = Field(default=50, validation_alias="RAG_CHUNK_OVERLAP")
     # RAG 和风格检索配置
     rag_top_k: int = Field(default=5, validation_alias="RAG_TOP_K")
     # 风格样本检索数量
