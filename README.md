@@ -23,9 +23,10 @@ Current implemented foundation:
 - SQLite-backed checkpoint and Human Review skeleton with pending review storage, approve/reject/edit/resume APIs, thread IDs, and idempotent resume no-send behavior
 - Knowledge RAG pipeline with document loading, recursive chunking, mock embeddings, persistent Chroma collection, active metadata filtering, top-k retrieval, and workflow trace integration
 - Memory RAG pipeline with SQLite memory records, Chroma memory collection, user-scoped retrieval, active filtering, `/remember`, `/forget`, and workflow context injection
+- Authorized data governance pipeline with consent manifest validation, PII redaction, processed style sample import, revocation-aware active status, ignored raw data folders, and import reports
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, Authorized Style RAG, real tools, persona, production safety policy, a human review UI, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, Authorized Style RAG retrieval/style feature extraction, real tools, persona, production safety policy, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -78,6 +79,8 @@ OPENAI_BASE_URL=https://api.deepseek.com
 
 `MEMORY_DB_PATH` and `MEMORY_TOP_K` configure the Step 13 Memory RAG pipeline. Memory records are scoped by `sender_id` as `user_id`; local memory SQLite data stays ignored, and only `data/memory/.gitignore` is tracked.
 
+`data/authorized_style_records/raw/` is reserved for local authorized chat exports and is ignored by Git. Step 14 tracks only safe examples: consent manifest, redacted processed style samples, and import reports under `data/authorized_style_records/`.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -111,3 +114,5 @@ The Step 11 Human Review tests verify thread ID construction, high-risk pending 
 The Step 12 Knowledge RAG tests verify document loading, required metadata, Chroma persistence, top-k retrieval, active metadata filtering, empty collection behavior, and workflow context/trace integration.
 
 The Step 13 Memory RAG tests verify memory save/list/deactivate fields, user-scoped retrieval, inactive filtering, `/remember`, `/forget`, and memory query context injection.
+
+The Step 14 governance tests verify no-consent rejection, forbidden usage rejection, PII redaction before processed sample writing, revoked-consent inactive samples, import report generation, and the safe authorized-style data layout.
