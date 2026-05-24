@@ -10,7 +10,8 @@ from bot_client.liteim_protocol import (
 )
 
 
-# FrameDecoder 只负责把 TCP 字节流拆成 Packet，不负责 socket、重连或业务处理。
+# FrameDecoder 只负责把 TCP 字节流拆成 Packet。
+# 它处理粘包、半包和错误检测，不负责 socket、重连或业务处理。
 class FrameDecoder:
     def __init__(self) -> None:
         self._buffer = bytearray()

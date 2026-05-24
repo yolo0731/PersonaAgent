@@ -1,3 +1,5 @@
+#  让BotClient 能看懂 LiteIM C++ 服务端的二进制协议
+#  它定义 header 常量、MessageType、TlvType、PacketHeader、Packet、编码函数、解析函数和 TLV getter
 from __future__ import annotations
 
 import struct
@@ -42,7 +44,7 @@ class ProtocolError(Exception):
         self.code = code
         self.message = message
 
-
+# 枚举类型，整数值对应协议定义，BotClient 只能使用这些预定义的消息类型和 TLV 类型。
 class MessageType(IntEnum):
     Unknown = 0
 
@@ -132,7 +134,8 @@ class TlvType(IntEnum):
     ErrorCode = 90
     ErrorMessage = 91
 
-
+# 用@dataclass 装饰器定义的数据类
+# 保存包头字段
 @dataclass(slots=True)
 class PacketHeader:
     magic: int = PACKET_MAGIC
@@ -143,10 +146,12 @@ class PacketHeader:
     body_len: int = 0
 
 
+# 保存 header + body
 @dataclass(slots=True)
 class Packet:
+    # 每个 Packet 都要有独立 PacketHeader，避免多个实例共享同一个对象。
     header: PacketHeader = field(default_factory=PacketHeader)
-    body: bytes = b""
+    body: bytes = b""  # bytes 是不可变类型，b 表示字节串。
 
 
 _MESSAGE_NAMES: dict[MessageType, str] = {
@@ -323,7 +328,7 @@ def validate_header(header: PacketHeader) -> None:
     _require_uint(header.seq_id, 0xFFFFFFFFFFFFFFFF, "packet seq_id")
     _require_uint(header.body_len, 0xFFFFFFFF, "packet body_len")
 
-
+# 编码 Packet 对象为二进制数据，供 BotClient 发送给 LiteIM 服务端。
 def encode_packet(packet: Packet) -> bytes:
     body = _as_bytes(packet.body, "packet body")
     if len(body) > MAX_PACKET_BODY_LENGTH:
@@ -348,7 +353,7 @@ def encode_packet(packet: Packet) -> bytes:
         header.body_len,
     ) + body
 
-
+# 从二进制数据解析 PacketHeader 对象，供 FrameDecoder 拆包时使用。
 def parse_header(data: BytesLike | None) -> PacketHeader:
     header_data = _as_bytes(data, "packet header data")
     if len(header_data) < PACKET_HEADER_SIZE:
@@ -400,7 +405,7 @@ def tlv_type_name(value: TlvTypeValue) -> str:
         return "UNKNOWN"
     return _TLV_NAMES[known]
 
-
+# 将 TLV 字段编码为二进制数据
 def _append_value(tlv_type: TlvTypeValue, value: bytes, output: bytearray | None = None) -> bytes:
     raw_type = int(tlv_type)
     if raw_type == int(TlvType.Unknown):
@@ -409,12 +414,13 @@ def _append_value(tlv_type: TlvTypeValue, value: bytes, output: bytearray | None
     if len(value) > MAX_TLV_VALUE_LENGTH:
         raise ProtocolError(ProtocolErrorCode.InvalidArgument, "tlv value is too large")
 
+    # 将 Type 和 Length 打包为 6 字节的二进制头，然后紧跟着 Value 的二进制数据。
     encoded = _TLV_HEADER.pack(raw_type, len(value)) + value
     if output is not None:
         output.extend(encoded)
     return encoded
 
-
+# 把字符串的 TLV 字段编码为二进制数据。
 def append_string(
     tlv_type: TlvTypeValue, value: str, output: bytearray | None = None
 ) -> bytes:
@@ -427,7 +433,7 @@ def append_uint64(
     _require_uint(value, 0xFFFFFFFFFFFFFFFF, "uint64 tlv value")
     return _append_value(tlv_type, struct.pack("!Q", value), output)
 
-
+# 从二进制数据解析 TLV 字段，返回一个字典，键是 TLV type 的整数值，值是一个字节串列表
 def parse_tlv_map(data: BytesLike | None) -> TlvMap:
     body = _as_bytes(data, "tlv body data")
     output: TlvMap = {}
@@ -461,7 +467,7 @@ def _find_values(tlv_map: TlvMap, tlv_type: TlvTypeValue, field_kind: str) -> li
 def _read_uint64(value: bytes) -> int:
     return int(struct.unpack("!Q", value)[0])
 
-
+# 从 TLV map 中获取字符串字段，解码为 UTF-8，并返回 Python 字符串。
 def get_string(tlv_map: TlvMap, tlv_type: TlvTypeValue) -> str:
     value = _find_values(tlv_map, tlv_type, "string")[0]
     try:
