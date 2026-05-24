@@ -5,7 +5,7 @@ from typing import Protocol
 
 import httpx
 
-from agent_service.schemas import AgentReplyCommand, ChatRequest, ChatResponse
+from agent_service.schemas import AgentReplyCommand, ChatRequest, ChatResponse, no_reply_command
 from bot_client.config import BotClientSettings
 from bot_client.message_handler import MessageProcessingResult
 from bot_client.protocol_parser import IncomingMessage
@@ -82,12 +82,4 @@ class AgentServiceMessageProcessor:
 
 
 def _unavailable_command(request: ChatRequest) -> AgentReplyCommand:
-    return AgentReplyCommand(
-        run_id=request.run_id,
-        source_message_id=request.message_id,
-        should_send=False,
-        receiver_id=request.sender_id,
-        text="",
-        client_message_id=None,
-        reason="agent_service_unavailable",
-    )
+    return no_reply_command(request, "agent_service_unavailable")

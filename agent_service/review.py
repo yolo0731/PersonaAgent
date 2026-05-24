@@ -9,7 +9,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
+from agent_service.schemas import (
+    AgentReplyCommand,
+    ChatRequest,
+    no_reply_command,
+    send_reply_command,
+)
 
 
 class ReviewStatus(StrEnum):
@@ -101,6 +106,16 @@ class HumanReviewStore:
         if not isinstance(state, dict):
             return None
         return state
+
+    def load_final_command(self, thread_id: str) -> AgentReplyCommand | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT final_command_json FROM checkpoints WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+        if row is None or row["final_command_json"] is None:
+            return None
+        return AgentReplyCommand.model_validate(json.loads(str(row["final_command_json"])))
 
     def create_pending(self, thread_id: str, state: Mapping[str, object]) -> HumanReviewRecord:
         self.save_checkpoint(thread_id, state)
@@ -289,13 +304,9 @@ def resume_human_review(thread_id: str, store: HumanReviewStore) -> AgentReplyCo
         return command
 
     text = record.edited_text or f"mock reply: {record.request.text}"
-    command = AgentReplyCommand(
-        run_id=record.run_id,
-        source_message_id=record.request.message_id,
-        should_send=True,
-        receiver_id=record.request.sender_id,
+    command = send_reply_command(
+        record.request,
         text=text,
-        client_message_id=f"pa-{record.run_id}",
         reason="human_review_approved",
     )
     store.mark_completed(thread_id, command)

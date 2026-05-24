@@ -25,7 +25,12 @@ from agent_service.review import (
 )
 from agent_service.safety.guard import SafetyGuard, SafetyTrace
 from agent_service.safety.verbatim_guard import LeakageMetrics, LeakageSource
-from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
+from agent_service.schemas import (
+    AgentReplyCommand,
+    ChatRequest,
+    no_reply_command,
+    send_reply_command,
+)
 from agent_service.style.style_store import StyleStore
 from agent_service.tools import (
     ToolErrorEnvelope,
@@ -235,18 +240,31 @@ def run_agent_chat(
         style_top_k=style_top_k,
     )
     safety = state["safety_result"]
+    thread_id = make_thread_id(request) if review_store is not None else None
     if (
         review_store is not None
         and not safety.blocked
         and (safety.needs_human_review or state["decision"].need_human_review)
     ):
-        thread_id = make_thread_id(request)
+        assert thread_id is not None
         existing = review_store.get_review(thread_id)
         if existing is not None and existing.status == ReviewStatus.COMPLETED:
-            return no_reply_command(request, "human_review_already_resumed")
+            command = no_reply_command(request, "human_review_already_resumed")
+            review_store.save_checkpoint(thread_id, state, command)
+            return command
         review_store.create_pending(thread_id, state)
-        return no_reply_command(request, "human_review_pending")
-    return state["final_command"]
+        command = no_reply_command(
+            request,
+            "human_review_pending",
+            trace_summary=state["final_command"].trace_summary,
+        )
+        review_store.save_checkpoint(thread_id, state, command)
+        return command
+    command = state["final_command"]
+    if review_store is not None:
+        assert thread_id is not None
+        review_store.save_checkpoint(thread_id, state, command)
+    return command
 
 
 def resume_agent_review(thread_id: str, review_store: HumanReviewStore) -> AgentReplyCommand:
@@ -529,25 +547,34 @@ def _safety_check(state: AgentState) -> dict[str, object]:
 def _finalize_reply(state: AgentState) -> dict[str, object]:
     request = state["request"]
     if not state["decision"].should_reply:
-        command = no_reply_command(request, "dialogue_policy_no_reply")
         action = "dialogue_policy_no_reply"
-    elif state["safety_result"].blocked:
-        command = no_reply_command(request, "safety_block")
-        action = "safety_block"
-    elif state["safety_result"].needs_human_review:
-        command = no_reply_command(request, "human_review_required")
-        action = "human_review_required"
-    else:
-        command = AgentReplyCommand(
-            run_id=state["run_id"],
-            source_message_id=request.message_id,
-            should_send=True,
-            receiver_id=request.sender_id,
-            text=state["draft"],
-            client_message_id=f"pa-{state['run_id']}",
-            reason="graph_mock",
+        command = no_reply_command(
+            request,
+            "dialogue_policy_no_reply",
+            trace_summary=_trace_summary(state, action),
         )
-        action = "send_mock_reply"
+    elif state["safety_result"].blocked:
+        action = "safety_block"
+        command = no_reply_command(
+            request,
+            "safety_block",
+            trace_summary=_trace_summary(state, action),
+        )
+    elif state["safety_result"].needs_human_review:
+        action = "human_review_required"
+        command = no_reply_command(
+            request,
+            "human_review_required",
+            trace_summary=_trace_summary(state, action),
+        )
+    else:
+        action = "send_command"
+        command = send_reply_command(
+            request,
+            text=state["draft"],
+            reason="finalized_reply",
+            trace_summary=_trace_summary(state, action),
+        )
     return {
         "final_command": command,
         "trace": _append_trace(state, "finalize_reply", action),
@@ -556,6 +583,11 @@ def _finalize_reply(state: AgentState) -> dict[str, object]:
 
 def _append_trace(state: AgentState, node: str, action: str) -> list[TraceEvent]:
     return [*state["trace"], TraceEvent(node=node, action=action)]
+
+
+def _trace_summary(state: AgentState, final_action: str) -> list[str]:
+    events = [*state["trace"], TraceEvent(node="finalize_reply", action=final_action)]
+    return [f"{event.node}:{event.action}" for event in events]
 
 
 def _parse_tool_command(text: str) -> ParsedToolCommand | ToolExecutionResult:
