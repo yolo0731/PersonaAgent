@@ -22,9 +22,10 @@ Current implemented foundation:
 - DialoguePolicy structured decision schema with mock structured-output validation, retry, fallback rules, intent classification, and need flags for knowledge, memory, style, tools, and human review
 - SQLite-backed checkpoint and Human Review skeleton with pending review storage, approve/reject/edit/resume APIs, thread IDs, and idempotent resume no-send behavior
 - Knowledge RAG pipeline with document loading, recursive chunking, mock embeddings, persistent Chroma collection, active metadata filtering, top-k retrieval, and workflow trace integration
+- Memory RAG pipeline with SQLite memory records, Chroma memory collection, user-scoped retrieval, active filtering, `/remember`, `/forget`, and workflow context injection
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, Memory RAG, Authorized Style RAG, real tools, persona, production safety policy, a human review UI, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, Authorized Style RAG, real tools, persona, production safety policy, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -39,6 +40,8 @@ AGENT_SERVICE_URL=http://127.0.0.1:8088
 AGENT_REQUEST_TIMEOUT_SECONDS=5.0
 AGENT_STATE_DB_PATH=data/agent_state/state.sqlite3
 CHROMA_PATH=data/chroma
+MEMORY_DB_PATH=data/memory/memory.sqlite3
+MEMORY_TOP_K=5
 KNOWLEDGE_DOCS_PATH=data/knowledge_docs
 RAG_CHUNK_SIZE=500
 RAG_CHUNK_OVERLAP=50
@@ -73,6 +76,8 @@ OPENAI_BASE_URL=https://api.deepseek.com
 
 `CHROMA_PATH`, `KNOWLEDGE_DOCS_PATH`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and `RAG_TOP_K` configure the Step 12 Knowledge RAG pipeline. Keep local Chroma data ignored; only `data/chroma/.gitignore` is tracked. Default tests use `MockEmbeddingClient` and do not call a real embedding API.
 
+`MEMORY_DB_PATH` and `MEMORY_TOP_K` configure the Step 13 Memory RAG pipeline. Memory records are scoped by `sender_id` as `user_id`; local memory SQLite data stays ignored, and only `data/memory/.gitignore` is tracked.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -104,3 +109,5 @@ The Step 10 DialoguePolicy tests verify the structured decision schema, all supp
 The Step 11 Human Review tests verify thread ID construction, high-risk pending review and checkpoint persistence, approve/edit/resume, reject/resume no-op, and repeated resume no-send behavior.
 
 The Step 12 Knowledge RAG tests verify document loading, required metadata, Chroma persistence, top-k retrieval, active metadata filtering, empty collection behavior, and workflow context/trace integration.
+
+The Step 13 Memory RAG tests verify memory save/list/deactivate fields, user-scoped retrieval, inactive filtering, `/remember`, `/forget`, and memory query context injection.

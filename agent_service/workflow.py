@@ -7,6 +7,8 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
 from agent_service.dialogue_policy import DialogueDecision, DialogueIntent, DialoguePolicy
+from agent_service.memory.memory_store import MemoryNotFoundError, MemoryStore
+from agent_service.memory.memory_tools import parse_forget_memory_id, parse_remember_content
 from agent_service.rag.documents import RetrievalTrace
 from agent_service.rag.knowledge_retriever import KnowledgeRetriever
 from agent_service.review import (
@@ -77,7 +79,9 @@ def make_initial_agent_state(request: ChatRequest) -> AgentState:
 def build_agent_graph(
     *,
     knowledge_retriever: KnowledgeRetriever | None = None,
+    memory_store: MemoryStore | None = None,
     rag_top_k: int = 5,
+    memory_top_k: int = 5,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("dialogue_policy", _dialogue_policy)
@@ -86,7 +90,9 @@ def build_agent_graph(
         lambda state: _retrieve_context(
             state,
             knowledge_retriever=knowledge_retriever,
+            memory_store=memory_store,
             rag_top_k=rag_top_k,
+            memory_top_k=memory_top_k,
         ),
     )
     graph.add_node("tool_router", _tool_router)
@@ -115,11 +121,15 @@ def run_agent_workflow(
     request: ChatRequest,
     *,
     knowledge_retriever: KnowledgeRetriever | None = None,
+    memory_store: MemoryStore | None = None,
     rag_top_k: int = 5,
+    memory_top_k: int = 5,
 ) -> AgentState:
     final_state = build_agent_graph(
         knowledge_retriever=knowledge_retriever,
+        memory_store=memory_store,
         rag_top_k=rag_top_k,
+        memory_top_k=memory_top_k,
     ).invoke(make_initial_agent_state(request))
     return cast(AgentState, final_state)
 
@@ -129,12 +139,16 @@ def run_agent_chat(
     *,
     review_store: HumanReviewStore | None = None,
     knowledge_retriever: KnowledgeRetriever | None = None,
+    memory_store: MemoryStore | None = None,
     rag_top_k: int = 5,
+    memory_top_k: int = 5,
 ) -> AgentReplyCommand:
     state = run_agent_workflow(
         request,
         knowledge_retriever=knowledge_retriever,
+        memory_store=memory_store,
         rag_top_k=rag_top_k,
+        memory_top_k=memory_top_k,
     )
     if review_store is not None and state["decision"].need_human_review:
         thread_id = make_thread_id(request)
@@ -168,8 +182,13 @@ def _retrieve_context(
     state: AgentState,
     *,
     knowledge_retriever: KnowledgeRetriever | None,
+    memory_store: MemoryStore | None,
     rag_top_k: int,
+    memory_top_k: int,
 ) -> dict[str, object]:
+    if state["decision"].need_memory and memory_store is not None:
+        return _retrieve_memory_context(state, memory_store=memory_store, memory_top_k=memory_top_k)
+
     if state["decision"].need_knowledge and knowledge_retriever is not None:
         retrieval = knowledge_retriever.retrieve(state["request"].text, top_k=rag_top_k)
         return {
@@ -185,6 +204,78 @@ def _retrieve_context(
         "retrieved_context": [],
         "retrieval_trace": [],
         "trace": _append_trace(state, "retrieve_context", "mock_empty_context"),
+    }
+
+
+def _retrieve_memory_context(
+    state: AgentState,
+    *,
+    memory_store: MemoryStore,
+    memory_top_k: int,
+) -> dict[str, object]:
+    request = state["request"]
+    remember_content = parse_remember_content(request.text)
+    if remember_content is not None:
+        record = memory_store.save_memory(
+            user_id=request.sender_id,
+            content=remember_content,
+            source_message_id=request.message_id,
+        )
+        trace = RetrievalTrace(
+            query=request.text,
+            top_k=memory_top_k,
+            result_count=1,
+            collection="memory",
+            chunk_ids=[record.memory_id],
+        )
+        return {
+            "retrieved_context": [f"memory_saved: {record.content}"],
+            "retrieval_trace": [trace],
+            "trace": _append_trace(state, "retrieve_context", "memory_saved"),
+        }
+
+    forget_memory_id = parse_forget_memory_id(request.text)
+    if forget_memory_id is not None:
+        try:
+            record = memory_store.deactivate_memory(
+                forget_memory_id,
+                user_id=request.sender_id,
+            )
+            context = f"memory_deactivated: {record.memory_id}"
+            chunk_ids = [record.memory_id]
+            result_count = 1
+            action = "memory_deactivated"
+        except MemoryNotFoundError:
+            context = f"memory_not_found: {forget_memory_id}"
+            chunk_ids = []
+            result_count = 0
+            action = "memory_not_found"
+        trace = RetrievalTrace(
+            query=request.text,
+            top_k=memory_top_k,
+            result_count=result_count,
+            collection="memory",
+            chunk_ids=chunk_ids,
+        )
+        return {
+            "retrieved_context": [context],
+            "retrieval_trace": [trace],
+            "trace": _append_trace(state, "retrieve_context", action),
+        }
+
+    retrieval = memory_store.retrieve_memory(
+        user_id=request.sender_id,
+        query=request.text,
+        top_k=memory_top_k,
+    )
+    return {
+        "retrieved_context": [f"memory: {result.content}" for result in retrieval.results],
+        "retrieval_trace": [retrieval.trace],
+        "trace": _append_trace(
+            state,
+            "retrieve_context",
+            f"memory_top_k={retrieval.trace.result_count}",
+        ),
     }
 
 

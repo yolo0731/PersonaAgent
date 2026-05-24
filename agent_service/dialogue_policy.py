@@ -95,6 +95,14 @@ def _rule_decision(request: ChatRequest, *, reason_prefix: str) -> DialogueDecis
             reason=f"{reason_prefix}_memory_update",
         )
 
+    if lowered.startswith("/forget "):
+        return DialogueDecision(
+            intent=DialogueIntent.MEMORY_UPDATE,
+            should_reply=True,
+            need_memory=True,
+            reason=f"{reason_prefix}_memory_forget",
+        )
+
     if _is_history_summary(text, lowered):
         return DialogueDecision(
             intent=DialogueIntent.HISTORY_SUMMARY,

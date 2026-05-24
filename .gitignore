@@ -12,7 +12,8 @@ __pycache__/
 .coverage
 htmlcov/
 
-data/memory/
+data/memory/*
+!data/memory/.gitignore
 data/chroma/*
 !data/chroma/.gitignore
 data/authorized_style_records/raw/

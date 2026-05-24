@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # 向量数据库类型
     vector_db: str = Field(default="chroma", validation_alias="VECTOR_DB")
     chroma_path: str = Field(default="data/chroma", validation_alias="CHROMA_PATH")
+    memory_db_path: str = Field(
+        default="data/memory/memory.sqlite3",
+        validation_alias="MEMORY_DB_PATH",
+    )
+    memory_top_k: int = Field(default=5, validation_alias="MEMORY_TOP_K")
     knowledge_docs_path: str = Field(
         default="data/knowledge_docs",
         validation_alias="KNOWLEDGE_DOCS_PATH",

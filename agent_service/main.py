@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, HTTPException
 
 from agent_service.config import Settings
+from agent_service.memory.memory_store import MemoryStore
+from agent_service.rag.embeddings import MockEmbeddingClient
 from agent_service.rag.knowledge_retriever import KnowledgeRetriever
 from agent_service.review import (
     ApproveReviewRequest,
@@ -45,16 +47,25 @@ def create_app(
     chat_handler: ChatHandler | None = None,
     review_store: HumanReviewStore | None = None,
     knowledge_retriever: KnowledgeRetriever | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings()
     app = FastAPI(title="PersonaAgent AgentService")
     store = review_store or HumanReviewStore(app_settings.agent_state_db_path)
+    memories = memory_store or MemoryStore(
+        sqlite_path=app_settings.memory_db_path,
+        chroma_path=app_settings.chroma_path,
+        embedding_client=MockEmbeddingClient(),
+        top_k=app_settings.memory_top_k,
+    )
     handler = chat_handler or (
         lambda request: run_agent_chat(
             request,
             review_store=store,
             knowledge_retriever=knowledge_retriever,
+            memory_store=memories,
             rag_top_k=app_settings.rag_top_k,
+            memory_top_k=app_settings.memory_top_k,
         )
     )
 
@@ -63,6 +74,7 @@ def create_app(
     app.state.chat_handler = handler
     app.state.review_store = store
     app.state.knowledge_retriever = knowledge_retriever
+    app.state.memory_store = memories
 
     @app.get("/health")
     def health() -> dict[str, str]:
