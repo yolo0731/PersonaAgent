@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from bot_client.protocol_parser import FriendProfile, ReceiptTraceEvent
+from bot_client.protocol_parser import FriendProfile, IncomingMessage, ReceiptTraceEvent
 
 FriendPolicyAction = Literal[
     "friend_list_synced",
@@ -32,6 +32,7 @@ class JsonMessageState:
         self._receipts: list[ReceiptTraceEvent] = []
         self._friends: dict[int, FriendProfile] = {}
         self._friend_policy_events: list[FriendPolicyTraceEvent] = []
+        self._group_messages: list[IncomingMessage] = []
         self._load()
 
     @property
@@ -45,6 +46,10 @@ class JsonMessageState:
     @property
     def friend_policy_events(self) -> list[FriendPolicyTraceEvent]:
         return list(self._friend_policy_events)
+
+    @property
+    def group_messages(self) -> list[IncomingMessage]:
+        return list(self._group_messages)
 
     def has_processed(self, message_id: int) -> bool:
         return message_id in self._processed_message_ids
@@ -70,6 +75,10 @@ class JsonMessageState:
 
     def record_friend_policy_event(self, event: FriendPolicyTraceEvent) -> None:
         self._friend_policy_events.append(event)
+        self._save()
+
+    def record_group_message(self, message: IncomingMessage) -> None:
+        self._group_messages.append(message)
         self._save()
 
     def _load(self) -> None:
@@ -112,6 +121,24 @@ class JsonMessageState:
             for item in data.get("friend_policy_events", [])
             if isinstance(item, dict)
         ]
+        self._group_messages = [
+            IncomingMessage(
+                message_id=int(item["message_id"]),
+                conversation_type=int(item["conversation_type"]),
+                conversation_id=int(item["conversation_id"]),
+                sender_id=int(item["sender_id"]),
+                receiver_id=int(item["receiver_id"]),
+                text=str(item["text"]),
+                timestamp_ms=int(item["timestamp_ms"]),
+                client_message_id=(
+                    str(item["client_message_id"])
+                    if item.get("client_message_id") is not None
+                    else None
+                ),
+            )
+            for item in data.get("group_messages", [])
+            if isinstance(item, dict)
+        ]
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,6 +171,19 @@ class JsonMessageState:
                     "reason": event.reason,
                 }
                 for event in self._friend_policy_events
+            ],
+            "group_messages": [
+                {
+                    "message_id": message.message_id,
+                    "conversation_type": message.conversation_type,
+                    "conversation_id": message.conversation_id,
+                    "sender_id": message.sender_id,
+                    "receiver_id": message.receiver_id,
+                    "text": message.text,
+                    "timestamp_ms": message.timestamp_ms,
+                    "client_message_id": message.client_message_id,
+                }
+                for message in self._group_messages
             ],
         }
         tmp_path = self._path.with_name(f"{self._path.name}.tmp")

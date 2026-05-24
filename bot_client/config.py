@@ -33,6 +33,7 @@ class BotClientSettings(BaseSettings):
         default=True,
         validation_alias="BOT_REJECT_NON_ALLOWLISTED_FRIEND_REQUESTS",
     )
+    echo_mode: bool = Field(default=True, validation_alias="ECHO_MODE")
 
     request_timeout_seconds: float = Field(
         default=5.0,

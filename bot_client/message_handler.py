@@ -79,6 +79,9 @@ class BotMessageHandler:
             message = parse_incoming_message(packet)
             await self._process_message(message, send_delivery_ack=True)
             return
+        if packet.header.msg_type == MessageType.GroupMessagePush:
+            self._state.record_group_message(parse_incoming_message(packet))
+            return
         if packet.header.msg_type in {
             MessageType.DeliveryReceiptPush,
             MessageType.ReadReceiptPush,

@@ -15,6 +15,7 @@ Current implemented foundation:
 - Async LiteIM `BotClient` with TCP connect, login/register helpers, pending request matching, timeout cleanup, heartbeat, close/logout, and supervisor reconnect
 - LiteIM reliability helpers for offline pull/ACK, delivery ACK, read ACK, `ClientMessageId` replies, local message deduplication, and receipt trace storage
 - Friend request policy helpers for allowlisted Agent access, automatic accept/reject decisions, friend-list sync, accepted-friend pushes, and non-friend private-message blocking
+- Reliable Echo mode runtime that connects/login, syncs friends, processes offline messages, consumes live pushes, replies to private chats through `ClientMessageId`, and records group pushes without replying
 - pytest / pytest-asyncio / ruff / mypy configuration
 
 The project still does not implement AgentService-to-BotClient command dispatch, LangGraph workflow, RAG, tools, persona, safety, or evaluation.
@@ -37,6 +38,7 @@ BOT_ALLOWED_USER_IDS=
 BOT_ALLOWED_USERNAMES=
 BOT_AUTO_ACCEPT_FRIEND_REQUESTS=true
 BOT_REJECT_NON_ALLOWLISTED_FRIEND_REQUESTS=true
+ECHO_MODE=true
 LLM_PROVIDER=deepseek
 LLM_MODEL=deepseek-v4-flash
 OPENAI_API_KEY=replace_with_deepseek_api_key
@@ -47,7 +49,9 @@ OPENAI_BASE_URL=https://api.deepseek.com
 
 `BOT_ALLOWED_USER_IDS` and `BOT_ALLOWED_USERNAMES` restrict who can become friends with the Agent account. By default, allowlisted requests are accepted and non-allowlisted requests are rejected.
 
-`BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, and friend policy traces. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
+`ECHO_MODE=true` enables the Step 07 smoke path: BotClient replies to private messages with the same text after delivery/read ACK and message deduplication. It does not call DeepSeek or AgentService.
+
+`BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
 
@@ -66,3 +70,5 @@ The Step 04 BotClient tests use an in-process asyncio mock LiteIM server. They d
 The Step 05 reliability tests use protocol packets and fake BotClient objects to verify ACK/order/dedup behavior without calling AgentService.
 
 The Step 06 friend policy tests use protocol packets and fake BotClient objects to verify allowlist accept/reject behavior, friend-list sync, accepted-push handling, and non-friend private-message blocking.
+
+The Step 07 Echo runtime tests verify startup sync order, offline echo-once behavior, live private echo with ACK/read/reply, restart deduplication, echo disabled behavior, and group push record-without-reply behavior.
