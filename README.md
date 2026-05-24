@@ -29,9 +29,10 @@ Current implemented foundation:
 - Tool Calling framework with a registry, Pydantic input/output schemas, timeout trace, structured error envelopes, idempotency keys for side-effect tools, safe memory/profile/context tools, and workflow state integration
 - PersonaEngine with versioned `persona.yaml`, required identity notice, prompt templates, style instruction, safety boundaries, prompt metadata, and used context ids
 - GenerateReply LLM layer with `ReplyDraft`, structured-output retries, fallback drafts, model/token/latency trace, and context-id attribution
+- SafetyGuard policy layer with AI identity notice checks, impersonation blocking, unauthorized style mimicry blocking, privacy leak blocking, high-risk-domain human review routing, safety trace fields, and existing verbatim leakage reuse
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement broader production safety policy, final send-command enrichment, a human review UI, or evaluation.
+The project still does not implement a full production compliance system, final send-command enrichment, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -98,6 +99,8 @@ Step 17 adds a safe Tool Calling framework inside AgentService. Built-in tools i
 
 Step 19 uses the configured `LLM_PROVIDER` and `LLM_MODEL` in `generate_reply`. `mock` mode stays offline and deterministic for unit tests. `deepseek` / OpenAI-compatible mode uses `OpenAILLMClient`; model errors, invalid structured output, or repeated failures become a fallback draft and are recorded in generation trace.
 
+Step 20 adds a deterministic `SafetyGuard` after draft generation. It blocks missing AI identity notice, impersonation attempts, unauthorized third-person style mimicry, privacy leakage, direct style-sample copies, and unsafe requests. Money, legal, medical, account/password, and real-world-commitment messages enter Human Review instead of being sent directly; review reject returns no-send, and review edit/approve resumes with the edited text.
+
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
@@ -143,3 +146,5 @@ The Step 17 Tool Calling tests verify registry schema validation, timeout trace 
 The Step 18 PersonaEngine tests verify default `persona.yaml` loading, required identity notice validation, context-aware prompt assembly, style fallback behavior, prompt metadata, and prompt version workflow trace recording.
 
 The Step 19 GenerateReply tests verify structured `ReplyDraft` generation, retry on non-structured output, fallback after repeated failures, token/latency trace, context id attribution, and workflow integration.
+
+The Step 20 SafetyGuard tests verify AI identity notice enforcement, impersonation blocking, unauthorized style mimicry blocking, privacy leak blocking, direct style-sample copy blocking, high-risk Human Review routing, reject no-send behavior, and review edit resume behavior.

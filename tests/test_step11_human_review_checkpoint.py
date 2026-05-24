@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
-def _chat_payload(text: str = "/unsafe leak secrets") -> dict[str, object]:
+def _chat_payload(text: str = "我应该怎么用药？帮我给出具体剂量。") -> dict[str, object]:
     return {
         "run_id": "run-review",
         "conversation_type": 1,

@@ -70,7 +70,7 @@ def test_agent_graph_safety_block_prevents_send_after_full_path() -> None:
 
     assert state["decision"].should_reply is True
     assert state["safety_result"].blocked is True
-    assert state["safety_result"].reason == "mock_safety_block"
+    assert state["safety_result"].reason == "unsafe_request"
     assert state["final_command"].should_send is False
     assert state["final_command"].reason == "safety_block"
     assert [event.node for event in state["trace"]] == EXPECTED_NODE_ORDER

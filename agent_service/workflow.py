@@ -23,7 +23,8 @@ from agent_service.review import (
     make_thread_id,
     resume_human_review,
 )
-from agent_service.safety.verbatim_guard import LeakageMetrics, LeakageSource, VerbatimLeakageGuard
+from agent_service.safety.guard import SafetyGuard, SafetyTrace
+from agent_service.safety.verbatim_guard import LeakageMetrics, LeakageSource
 from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
 from agent_service.style.style_store import StyleStore
 from agent_service.tools import (
@@ -47,7 +48,9 @@ EXPECTED_NODE_ORDER = [
 class SafetyResult(BaseModel):
     blocked: bool
     reason: str | None = None
+    needs_human_review: bool = False
     metrics: LeakageMetrics | None = None
+    trace: SafetyTrace | None = None
 
 
 class TraceEvent(BaseModel):
@@ -231,7 +234,12 @@ def run_agent_chat(
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
     )
-    if review_store is not None and state["decision"].need_human_review:
+    safety = state["safety_result"]
+    if (
+        review_store is not None
+        and not safety.blocked
+        and (safety.needs_human_review or state["decision"].need_human_review)
+    ):
         thread_id = make_thread_id(request)
         existing = review_store.get_review(thread_id)
         if existing is not None and existing.status == ReviewStatus.COMPLETED:
@@ -485,51 +493,37 @@ def _generate_reply(
 
 
 def _safety_check(state: AgentState) -> dict[str, object]:
-    if state["decision"].intent == DialogueIntent.UNSAFE:
-        result = SafetyResult(blocked=True, reason="mock_safety_block")
-        return {
-            "safety_result": result,
-            "trace": _append_trace(state, "safety_check", "blocked"),
-        }
-
     style_sources = _style_sources_from_context(state["retrieved_context"])
-    if style_sources:
-        assessment = VerbatimLeakageGuard().assess(state["draft"], style_sources)
-        if assessment.action == "block":
-            result = SafetyResult(
-                blocked=True,
-                reason=assessment.reason,
-                metrics=assessment.metrics,
-            )
-            return {
-                "safety_result": result,
-                "trace": _append_trace(
-                    state,
-                    "safety_check",
-                    f"blocked:{assessment.reason}",
-                ),
-            }
-        if assessment.action == "rewrite":
-            result = SafetyResult(
-                blocked=False,
-                reason=assessment.reason,
-                metrics=assessment.metrics,
-            )
-            return {
-                "draft": assessment.safe_text,
-                "safety_result": result,
-                "trace": _append_trace(
-                    state,
-                    "safety_check",
-                    f"rewritten:{assessment.reason}",
-                ),
-            }
-
-    result = SafetyResult(blocked=False)
-    return {
+    assessment = SafetyGuard().assess(
+        request=state["request"],
+        draft=state["draft"],
+        prompt_messages=state["prompt_messages"],
+        retrieved_context=state["retrieved_context"],
+        style_sources=style_sources,
+        unsafe_decision=state["decision"].intent == DialogueIntent.UNSAFE,
+    )
+    result = SafetyResult(
+        blocked=assessment.blocked,
+        reason=assessment.reason,
+        needs_human_review=assessment.needs_human_review,
+        metrics=assessment.metrics,
+        trace=assessment.trace,
+    )
+    if assessment.blocked:
+        action = f"blocked:{assessment.reason}"
+    elif assessment.needs_human_review:
+        action = f"review:{assessment.reason}"
+    elif assessment.safe_text is not None and assessment.safe_text != state["draft"]:
+        action = f"rewritten:{assessment.reason}"
+    else:
+        action = "passed"
+    updates: dict[str, object] = {
         "safety_result": result,
-        "trace": _append_trace(state, "safety_check", "passed"),
+        "trace": _append_trace(state, "safety_check", action),
     }
+    if assessment.safe_text is not None:
+        updates["draft"] = assessment.safe_text
+    return updates
 
 
 def _finalize_reply(state: AgentState) -> dict[str, object]:
@@ -540,6 +534,9 @@ def _finalize_reply(state: AgentState) -> dict[str, object]:
     elif state["safety_result"].blocked:
         command = no_reply_command(request, "safety_block")
         action = "safety_block"
+    elif state["safety_result"].needs_human_review:
+        command = no_reply_command(request, "human_review_required")
+        action = "human_review_required"
     else:
         command = AgentReplyCommand(
             run_id=state["run_id"],
