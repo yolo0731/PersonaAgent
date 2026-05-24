@@ -8,7 +8,7 @@ from typing import Protocol
 
 from bot_client.bot_client import BotIdentity
 from bot_client.liteim_protocol import MessageType, Packet
-from bot_client.message_state import JsonMessageState
+from bot_client.message_state import FriendPolicyTraceEvent, JsonMessageState
 from bot_client.protocol_parser import (
     IncomingMessage,
     parse_incoming_message,
@@ -54,10 +54,13 @@ class BotMessageHandler:
         client: ReliabilityClient,
         state: JsonMessageState,
         processor: MessageProcessor,
+        *,
+        require_friendship: bool = False,
     ) -> None:
         self._client = client
         self._state = state
         self._processor = processor
+        self._require_friendship = require_friendship
 
     async def sync_offline_after_login(self, limit: int = 100) -> None:
         messages = await self._client.pull_offline_messages(limit)
@@ -94,6 +97,17 @@ class BotMessageHandler:
             await self._client.send_delivery_ack(message.message_id)
         if self._state.has_processed(message.message_id):
             return False
+        if self._blocks_non_friend_message(message):
+            self._state.record_friend_policy_event(
+                FriendPolicyTraceEvent(
+                    action="blocked_non_friend_message",
+                    user_id=message.sender_id,
+                    username="",
+                    reason="not_friend",
+                )
+            )
+            self._state.mark_processed(message.message_id)
+            return False
 
         result = await self._call_processor(message)
         if message.conversation_type == PRIVATE_CONVERSATION_TYPE:
@@ -116,6 +130,13 @@ class BotMessageHandler:
     def _is_self_message(self, message: IncomingMessage) -> bool:
         identity = self._client.identity
         return identity is not None and message.sender_id == identity.user_id
+
+    def _blocks_non_friend_message(self, message: IncomingMessage) -> bool:
+        return (
+            self._require_friendship
+            and message.conversation_type == PRIVATE_CONVERSATION_TYPE
+            and not self._state.is_friend(message.sender_id)
+        )
 
     def _new_client_message_id(self) -> str:
         identity = self._client.identity

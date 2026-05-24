@@ -23,6 +23,16 @@ class BotClientSettings(BaseSettings):
         ge=1,
         le=100,
     )
+    allowed_user_ids: str = Field(default="", validation_alias="BOT_ALLOWED_USER_IDS")
+    allowed_usernames: str = Field(default="", validation_alias="BOT_ALLOWED_USERNAMES")
+    auto_accept_friend_requests: bool = Field(
+        default=True,
+        validation_alias="BOT_AUTO_ACCEPT_FRIEND_REQUESTS",
+    )
+    reject_non_allowlisted_friend_requests: bool = Field(
+        default=True,
+        validation_alias="BOT_REJECT_NON_ALLOWLISTED_FRIEND_REQUESTS",
+    )
 
     request_timeout_seconds: float = Field(
         default=5.0,

@@ -23,6 +23,7 @@ from bot_client.liteim_protocol import (
 )
 from bot_client.protocol_builders import (
     make_delivery_ack_body,
+    make_friend_action_body,
     make_login_body,
     make_offline_ack_body,
     make_offline_request_body,
@@ -32,7 +33,12 @@ from bot_client.protocol_builders import (
     make_register_body,
 )
 from bot_client.protocol_parser import (
+    FriendProfile,
+    FriendRequest,
     IncomingMessage,
+    parse_friend_action,
+    parse_friend_requests,
+    parse_friends,
     parse_incoming_message,
     parse_offline_messages,
 )
@@ -212,6 +218,36 @@ class BotClient:
         self._state = BotClientState.CONNECTED
         await self._cancel_heartbeat_task()
         return response
+
+    async def list_friends(self) -> list[FriendProfile]:
+        response = await self.request(MessageType.ListFriendsRequest)
+        if response.header.msg_type != MessageType.ListFriendsResponse:
+            raise BotClientProtocolError("unexpected list friends response")
+        return parse_friends(response)
+
+    async def list_friend_requests(self) -> list[FriendRequest]:
+        response = await self.request(MessageType.ListFriendRequestsRequest)
+        if response.header.msg_type != MessageType.ListFriendRequestsResponse:
+            raise BotClientProtocolError("unexpected list friend requests response")
+        return parse_friend_requests(response)
+
+    async def accept_friend_request(self, requester_id: int) -> FriendRequest:
+        response = await self.request(
+            MessageType.AcceptFriendRequest,
+            make_friend_action_body(requester_id),
+        )
+        if response.header.msg_type != MessageType.AcceptFriendResponse:
+            raise BotClientProtocolError("unexpected accept friend response")
+        return parse_friend_action(response)
+
+    async def reject_friend_request(self, requester_id: int) -> FriendRequest:
+        response = await self.request(
+            MessageType.RejectFriendRequest,
+            make_friend_action_body(requester_id),
+        )
+        if response.header.msg_type != MessageType.RejectFriendResponse:
+            raise BotClientProtocolError("unexpected reject friend response")
+        return parse_friend_action(response)
 
     async def pull_offline_messages(self, limit: int | None = None) -> list[IncomingMessage]:
         body = make_offline_request_body(

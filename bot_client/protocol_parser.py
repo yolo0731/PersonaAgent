@@ -14,6 +14,10 @@ from bot_client.liteim_protocol import (
     parse_tlv_map,
 )
 
+FRIEND_REQUEST_PENDING = 0
+FRIEND_REQUEST_ACCEPTED = 1
+FRIEND_REQUEST_REJECTED = 2
+
 
 @dataclass(frozen=True, slots=True)
 class IncomingMessage:
@@ -36,6 +40,20 @@ class ReceiptTraceEvent:
     delivery_status: int
 
 
+@dataclass(frozen=True, slots=True)
+class FriendProfile:
+    user_id: int
+    username: str
+    nickname: str
+    online: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FriendRequest:
+    profile: FriendProfile
+    status: int
+
+
 def parse_incoming_message(packet: Packet) -> IncomingMessage:
     fields = parse_tlv_map(packet.body)
     client_values = fields.get(int(TlvType.ClientMessageId), [])
@@ -50,6 +68,40 @@ def parse_incoming_message(packet: Packet) -> IncomingMessage:
         timestamp_ms=get_uint64(fields, TlvType.TimestampMs),
         client_message_id=client_message_id,
     )
+
+
+def parse_friends(packet: Packet) -> list[FriendProfile]:
+    fields = parse_tlv_map(packet.body)
+    if int(TlvType.FriendId) not in fields:
+        return []
+    return _parse_friend_profiles(fields)
+
+
+def parse_friend_requests(packet: Packet) -> list[FriendRequest]:
+    fields = parse_tlv_map(packet.body)
+    if int(TlvType.FriendId) not in fields:
+        return []
+    profiles = _parse_friend_profiles(fields)
+    statuses = _uint64_values(fields, TlvType.FriendRequestStatus)
+    if len(statuses) != len(profiles):
+        raise ProtocolError(
+            ProtocolErrorCode.ParseError,
+            "friend request response fields mismatch",
+        )
+    return [
+        FriendRequest(profile=profile, status=status)
+        for profile, status in zip(profiles, statuses, strict=True)
+    ]
+
+
+def parse_friend_action(packet: Packet) -> FriendRequest:
+    requests = parse_friend_requests(packet)
+    if len(requests) != 1:
+        raise ProtocolError(
+            ProtocolErrorCode.ParseError,
+            "friend action response must contain one friend",
+        )
+    return requests[0]
 
 
 def parse_offline_messages(packet: Packet) -> list[IncomingMessage]:
@@ -115,6 +167,30 @@ def parse_receipt(packet: Packet) -> ReceiptTraceEvent:
         peer_user_id=peer_user_id,
         delivery_status=get_uint64(fields, TlvType.DeliveryStatus),
     )
+
+
+def _parse_friend_profiles(fields: dict[int, list[bytes]]) -> list[FriendProfile]:
+    user_ids = _uint64_values(fields, TlvType.FriendId)
+    usernames = _string_values(fields, TlvType.Username)
+    nicknames = _string_values(fields, TlvType.Nickname)
+    online_values = _uint64_values(fields, TlvType.OnlineStatus)
+
+    count = len(user_ids)
+    if not all(len(values) == count for values in (usernames, nicknames, online_values)):
+        raise ProtocolError(
+            ProtocolErrorCode.ParseError,
+            "friend response fields mismatch",
+        )
+
+    return [
+        FriendProfile(
+            user_id=user_ids[index],
+            username=usernames[index],
+            nickname=nicknames[index],
+            online=online_values[index] != 0,
+        )
+        for index in range(count)
+    ]
 
 
 def _uint64_values(fields: dict[int, list[bytes]], tlv_type: TlvType) -> list[int]:

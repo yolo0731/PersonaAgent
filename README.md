@@ -14,6 +14,7 @@ Current implemented foundation:
 - Cross-language LiteIM protocol contract tests against the sibling C++ protocol implementation
 - Async LiteIM `BotClient` with TCP connect, login/register helpers, pending request matching, timeout cleanup, heartbeat, close/logout, and supervisor reconnect
 - LiteIM reliability helpers for offline pull/ACK, delivery ACK, read ACK, `ClientMessageId` replies, local message deduplication, and receipt trace storage
+- Friend request policy helpers for allowlisted Agent access, automatic accept/reject decisions, friend-list sync, accepted-friend pushes, and non-friend private-message blocking
 - pytest / pytest-asyncio / ruff / mypy configuration
 
 The project still does not implement AgentService-to-BotClient command dispatch, LangGraph workflow, RAG, tools, persona, safety, or evaluation.
@@ -32,6 +33,10 @@ BOT_PASSWORD=change_me
 BOT_NICKNAME=PersonaAgent
 BOT_STATE_PATH=data/bot_state/state.json
 BOT_OFFLINE_MESSAGE_LIMIT=100
+BOT_ALLOWED_USER_IDS=
+BOT_ALLOWED_USERNAMES=
+BOT_AUTO_ACCEPT_FRIEND_REQUESTS=true
+BOT_REJECT_NON_ALLOWLISTED_FRIEND_REQUESTS=true
 LLM_PROVIDER=deepseek
 LLM_MODEL=deepseek-v4-flash
 OPENAI_API_KEY=replace_with_deepseek_api_key
@@ -40,7 +45,9 @@ OPENAI_BASE_URL=https://api.deepseek.com
 
 `BotClient` connects to LiteIM as a normal user over the same TCP/TLV protocol. `AgentService` does not hold the LiteIM TCP connection and does not directly send LiteIM packets.
 
-`BOT_STATE_PATH` stores local processed-message IDs and delivery/read receipt traces. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
+`BOT_ALLOWED_USER_IDS` and `BOT_ALLOWED_USERNAMES` restrict who can become friends with the Agent account. By default, allowlisted requests are accepted and non-allowlisted requests are rejected.
+
+`BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, and friend policy traces. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
 Unit tests still use `MockLLMClient` and do not call DeepSeek.
 
@@ -57,3 +64,5 @@ The cross-language protocol tests compile a small C++ helper into pytest's tempo
 The Step 04 BotClient tests use an in-process asyncio mock LiteIM server. They do not require MySQL, Redis, or a running LiteIM server.
 
 The Step 05 reliability tests use protocol packets and fake BotClient objects to verify ACK/order/dedup behavior without calling AgentService.
+
+The Step 06 friend policy tests use protocol packets and fake BotClient objects to verify allowlist accept/reject behavior, friend-list sync, accepted-push handling, and non-friend private-message blocking.

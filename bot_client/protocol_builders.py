@@ -28,6 +28,14 @@ def make_register_body(username: str, password: str, nickname: str) -> bytes:
     return bytes(body)
 
 
+def make_friend_action_body(requester_id: int) -> bytes:
+    if requester_id == 0:
+        raise ValueError("friend requester id must not be zero")
+    body = bytearray()
+    append_uint64(TlvType.TargetUserId, requester_id, body)
+    return bytes(body)
+
+
 def make_offline_request_body(limit: int) -> bytes:
     body = bytearray()
     append_uint64(TlvType.Limit, limit, body)
