@@ -24,9 +24,10 @@ Current implemented foundation:
 - Knowledge RAG pipeline with document loading, recursive chunking, mock embeddings, persistent Chroma collection, active metadata filtering, top-k retrieval, and workflow trace integration
 - Memory RAG pipeline with SQLite memory records, Chroma memory collection, user-scoped retrieval, active filtering, `/remember`, `/forget`, and workflow context injection
 - Authorized data governance pipeline with consent manifest validation, PII redaction, processed style sample import, revocation-aware active status, ignored raw data folders, and import reports
+- Authorized Style RAG pipeline with a dedicated Chroma style collection, `persona_id` / `consent_id` / `active` filtering, deterministic style feature extraction, insufficient-sample fallback, and workflow trace/context injection
 - pytest / pytest-asyncio / ruff / mypy configuration
 
-The project still does not implement real LLM structured output, real reply generation, Authorized Style RAG retrieval/style feature extraction, real tools, persona, production safety policy, a human review UI, or evaluation.
+The project still does not implement real LLM structured output, real reply generation, real tools, persona, production safety policy, verbatim leakage guard, a human review UI, or evaluation.
 
 ## Local Runtime Config
 
@@ -47,6 +48,7 @@ KNOWLEDGE_DOCS_PATH=data/knowledge_docs
 RAG_CHUNK_SIZE=500
 RAG_CHUNK_OVERLAP=50
 RAG_TOP_K=5
+STYLE_TOP_K=8
 LITEIM_HOST=127.0.0.1
 LITEIM_PORT=9000
 BOT_USERNAME=persona_agent_bot
@@ -80,6 +82,8 @@ OPENAI_BASE_URL=https://api.deepseek.com
 `MEMORY_DB_PATH` and `MEMORY_TOP_K` configure the Step 13 Memory RAG pipeline. Memory records are scoped by `sender_id` as `user_id`; local memory SQLite data stays ignored, and only `data/memory/.gitignore` is tracked.
 
 `data/authorized_style_records/raw/` is reserved for local authorized chat exports and is ignored by Git. Step 14 tracks only safe examples: consent manifest, redacted processed style samples, and import reports under `data/authorized_style_records/`.
+
+`STYLE_TOP_K` configures the Step 15 Authorized Style RAG retrieval limit. Style retrieval uses the `style` collection under `CHROMA_PATH`, derives the target `persona_id` from `sender_id` for current-user style requests, and only injects processed, redacted style examples into workflow context.
 
 `BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
 
@@ -116,3 +120,5 @@ The Step 12 Knowledge RAG tests verify document loading, required metadata, Chro
 The Step 13 Memory RAG tests verify memory save/list/deactivate fields, user-scoped retrieval, inactive filtering, `/remember`, `/forget`, and memory query context injection.
 
 The Step 14 governance tests verify no-consent rejection, forbidden usage rejection, PII redaction before processed sample writing, revoked-consent inactive samples, import report generation, and the safe authorized-style data layout.
+
+The Step 15 Authorized Style RAG tests verify `persona_id` isolation, `consent_id` filtering, `active=false` exclusion, deterministic style feature stats, insufficient-sample fallback, and workflow style trace/context injection.

@@ -18,6 +18,7 @@ from agent_service.review import (
     resume_human_review,
 )
 from agent_service.schemas import AgentReplyCommand, ChatRequest, no_reply_command
+from agent_service.style.style_store import StyleStore
 
 EXPECTED_NODE_ORDER = [
     "dialogue_policy",
@@ -80,8 +81,10 @@ def build_agent_graph(
     *,
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
+    style_store: StyleStore | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
+    style_top_k: int = 8,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("dialogue_policy", _dialogue_policy)
@@ -91,8 +94,10 @@ def build_agent_graph(
             state,
             knowledge_retriever=knowledge_retriever,
             memory_store=memory_store,
+            style_store=style_store,
             rag_top_k=rag_top_k,
             memory_top_k=memory_top_k,
+            style_top_k=style_top_k,
         ),
     )
     graph.add_node("tool_router", _tool_router)
@@ -122,14 +127,18 @@ def run_agent_workflow(
     *,
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
+    style_store: StyleStore | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
+    style_top_k: int = 8,
 ) -> AgentState:
     final_state = build_agent_graph(
         knowledge_retriever=knowledge_retriever,
         memory_store=memory_store,
+        style_store=style_store,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
+        style_top_k=style_top_k,
     ).invoke(make_initial_agent_state(request))
     return cast(AgentState, final_state)
 
@@ -140,15 +149,19 @@ def run_agent_chat(
     review_store: HumanReviewStore | None = None,
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
+    style_store: StyleStore | None = None,
     rag_top_k: int = 5,
     memory_top_k: int = 5,
+    style_top_k: int = 8,
 ) -> AgentReplyCommand:
     state = run_agent_workflow(
         request,
         knowledge_retriever=knowledge_retriever,
         memory_store=memory_store,
+        style_store=style_store,
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
+        style_top_k=style_top_k,
     )
     if review_store is not None and state["decision"].need_human_review:
         thread_id = make_thread_id(request)
@@ -183,11 +196,16 @@ def _retrieve_context(
     *,
     knowledge_retriever: KnowledgeRetriever | None,
     memory_store: MemoryStore | None,
+    style_store: StyleStore | None,
     rag_top_k: int,
     memory_top_k: int,
+    style_top_k: int,
 ) -> dict[str, object]:
     if state["decision"].need_memory and memory_store is not None:
         return _retrieve_memory_context(state, memory_store=memory_store, memory_top_k=memory_top_k)
+
+    if state["decision"].need_style and style_store is not None:
+        return _retrieve_style_context(state, style_store=style_store, style_top_k=style_top_k)
 
     if state["decision"].need_knowledge and knowledge_retriever is not None:
         retrieval = knowledge_retriever.retrieve(state["request"].text, top_k=rag_top_k)
@@ -204,6 +222,42 @@ def _retrieve_context(
         "retrieved_context": [],
         "retrieval_trace": [],
         "trace": _append_trace(state, "retrieve_context", "mock_empty_context"),
+    }
+
+
+def _retrieve_style_context(
+    state: AgentState,
+    *,
+    style_store: StyleStore,
+    style_top_k: int,
+) -> dict[str, object]:
+    request = state["request"]
+    retrieval = style_store.retrieve_style(
+        persona_id=str(request.sender_id),
+        query=request.text,
+        top_k=style_top_k,
+    )
+    if retrieval.fallback_reason is not None:
+        return {
+            "retrieved_context": [f"style_fallback: {retrieval.fallback_reason}"],
+            "retrieval_trace": [retrieval.trace],
+            "trace": _append_trace(
+                state,
+                "retrieve_context",
+                f"style_fallback={retrieval.fallback_reason}",
+            ),
+        }
+    return {
+        "retrieved_context": [
+            f"style_summary: {retrieval.summary.text}",
+            *[f"style_example: {sample.text}" for sample in retrieval.results],
+        ],
+        "retrieval_trace": [retrieval.trace],
+        "trace": _append_trace(
+            state,
+            "retrieve_context",
+            f"style_top_k={retrieval.trace.result_count}",
+        ),
     }
 
 
