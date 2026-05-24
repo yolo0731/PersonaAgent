@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -21,9 +22,19 @@ from bot_client.liteim_protocol import (
     parse_tlv_map,
 )
 from bot_client.protocol_builders import (
+    make_delivery_ack_body,
     make_login_body,
+    make_offline_ack_body,
+    make_offline_request_body,
     make_packet,
+    make_private_message_body,
+    make_read_ack_body,
     make_register_body,
+)
+from bot_client.protocol_parser import (
+    IncomingMessage,
+    parse_incoming_message,
+    parse_offline_messages,
 )
 
 
@@ -202,6 +213,57 @@ class BotClient:
         await self._cancel_heartbeat_task()
         return response
 
+    async def pull_offline_messages(self, limit: int | None = None) -> list[IncomingMessage]:
+        body = make_offline_request_body(
+            limit if limit is not None else self._settings.offline_message_limit
+        )
+        response = await self.request(MessageType.OfflineMessagesRequest, body)
+        if response.header.msg_type != MessageType.OfflineMessagesResponse:
+            raise BotClientProtocolError("unexpected offline messages response")
+        return parse_offline_messages(response)
+
+    async def ack_offline_messages(self, message_ids: list[int]) -> None:
+        response = await self.request(
+            MessageType.OfflineMessagesAckRequest,
+            make_offline_ack_body(message_ids),
+        )
+        if response.header.msg_type != MessageType.OfflineMessagesAckResponse:
+            raise BotClientProtocolError("unexpected offline ack response")
+
+    async def send_delivery_ack(self, message_id: int) -> None:
+        response = await self.request(
+            MessageType.DeliveryAckRequest,
+            make_delivery_ack_body(message_id),
+        )
+        if response.header.msg_type != MessageType.DeliveryAckResponse:
+            raise BotClientProtocolError("unexpected delivery ack response")
+
+    async def send_read_ack(self, conversation_id: int, message_id: int) -> None:
+        response = await self.request(
+            MessageType.ReadAckRequest,
+            make_read_ack_body(conversation_id, message_id),
+        )
+        if response.header.msg_type != MessageType.ReadAckResponse:
+            raise BotClientProtocolError("unexpected read ack response")
+
+    async def send_private_message(
+        self,
+        receiver_id: int,
+        text: str,
+        client_message_id: str | None = None,
+    ) -> IncomingMessage:
+        response = await self.request(
+            MessageType.PrivateMessageRequest,
+            make_private_message_body(
+                receiver_id,
+                text,
+                client_message_id or self._new_client_message_id(),
+            ),
+        )
+        if response.header.msg_type != MessageType.PrivateMessageResponse:
+            raise BotClientProtocolError("unexpected private message response")
+        return parse_incoming_message(response)
+
     async def request(
         self,
         msg_type: MessageType,
@@ -267,6 +329,10 @@ class BotClient:
         seq_id = self._seq_id
         self._seq_id += 1
         return seq_id
+
+    def _new_client_message_id(self) -> str:
+        user_id = self._identity.user_id if self._identity is not None else 0
+        return f"pa-{user_id}-{uuid.uuid4().hex}"
 
     def _start_heartbeat(self) -> None:
         if self._heartbeat_task is not None and not self._heartbeat_task.done():

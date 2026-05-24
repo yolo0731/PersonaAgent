@@ -13,6 +13,16 @@ class BotClientSettings(BaseSettings):
     bot_username: str = Field(default="persona_agent_bot", validation_alias="BOT_USERNAME")
     bot_password: str = Field(default="change_me", validation_alias="BOT_PASSWORD")
     bot_nickname: str = Field(default="PersonaAgent", validation_alias="BOT_NICKNAME")
+    bot_state_path: str = Field(
+        default="data/bot_state/state.json",
+        validation_alias="BOT_STATE_PATH",
+    )
+    offline_message_limit: int = Field(
+        default=100,
+        validation_alias="BOT_OFFLINE_MESSAGE_LIMIT",
+        ge=1,
+        le=100,
+    )
 
     request_timeout_seconds: float = Field(
         default=5.0,
