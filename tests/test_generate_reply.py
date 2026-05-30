@@ -100,7 +100,7 @@ def _prompt_with_context():
 def _llm_response(
     *,
     text: str,
-    model: str = "mock-step19",
+    model: str = "mock-generation",
     structured: BaseModel | None,
     prompt_tokens: int = 11,
     completion_tokens: int = 7,
@@ -134,7 +134,7 @@ def test_reply_generator_returns_structured_draft_and_trace_metadata() -> None:
     assert result.draft.used_knowledge_ids == ["knowledge-doc-1"]
     assert result.draft.used_memory_ids == ["mem-1002-7001"]
     assert result.draft.used_style_sample_ids == ["style-a"]
-    assert result.trace.model == "mock-step19"
+    assert result.trace.model == "mock-generation"
     assert result.trace.prompt_tokens == 11
     assert result.trace.completion_tokens == 7
     assert result.trace.latency_ms >= 0.0

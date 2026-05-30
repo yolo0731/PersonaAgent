@@ -43,7 +43,7 @@ class FixedLLMClient(LLMClient):
         )
         return LLMResponse(
             content=self.reply_text,
-            model="fixed-step20",
+            model="fixed-safety",
             structured=structured,
         )
 
@@ -163,8 +163,8 @@ def test_verbatim_style_sample_copy_is_rewritten_by_safety_guard(tmp_path: Path)
     store.index_samples(
         [
             ProcessedStyleSample(
-                sample_id="style-step20",
-                record_id="raw-style-step20",
+                sample_id="style-safety",
+                record_id="raw-style-safety",
                 consent_id="consent-1002-style",
                 persona_id="1002",
                 speaker_user_id=1002,
@@ -189,7 +189,7 @@ def test_verbatim_style_sample_copy_is_rewritten_by_safety_guard(tmp_path: Path)
     assert state["safety_result"].blocked is False
     assert state["safety_result"].reason == "direct_verbatim_copy"
     assert state["safety_result"].metrics is not None
-    assert state["safety_result"].metrics.source_ids == ["style-step20"]
+    assert state["safety_result"].metrics.source_ids == ["style-safety"]
     assert state["final_command"].should_send is True
     assert state["final_command"].reason == "finalized_reply"
     assert state["final_command"].text == "我会保持相近的简洁语气，但不会复述授权样本原文。"

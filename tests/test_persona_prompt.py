@@ -136,7 +136,7 @@ def test_persona_prompt_filters_noisy_style_examples_before_prompting() -> None:
     assert "但我见侍考研具头" not in joined
 
 
-def test_persona_prompt_injects_local_tang_chenxi_style_profile(tmp_path: Path) -> None:
+def test_persona_prompt_injects_local_demo_style_profile(tmp_path: Path) -> None:
     from agent_service.persona.engine import PersonaEngine
     from agent_service.schemas import ChatRequest
 

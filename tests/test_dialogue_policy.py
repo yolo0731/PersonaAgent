@@ -35,7 +35,7 @@ def _request(text: str, *, conversation_type: int = 1):
     )
 
 
-def test_dialogue_decision_schema_covers_all_step10_intents() -> None:
+def test_dialogue_decision_schema_covers_all_supported_intents() -> None:
     from agent_service.dialogue_policy import DialogueIntent
 
     assert {intent.value for intent in DialogueIntent} == {

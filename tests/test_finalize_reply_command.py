@@ -43,7 +43,7 @@ class FixedLLMClient(LLMClient):
         )
         return LLMResponse(
             content=self.reply_text,
-            model="fixed-step21",
+            model="fixed-finalize",
             structured=structured,
         )
 
@@ -75,7 +75,7 @@ def test_safety_pass_finalizes_idempotent_send_command() -> None:
         "tool_router:mock_no_tools",
     ]
     assert command.trace_summary[3].startswith(
-        "generate_reply:model=fixed-step21;prompt_version=persona-v1;"
+        "generate_reply:model=fixed-finalize;prompt_version=persona-v1;"
     )
     assert "latency_ms=" in command.trace_summary[3]
     assert command.trace_summary[-2:] == [
