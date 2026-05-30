@@ -1,3 +1,4 @@
+# 给 PersonaAgent 的 BotClient 保存本地状态,是本地 JSON 状态仓库
 from __future__ import annotations
 
 import json
@@ -5,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from bot_client.protocol_parser import FriendProfile, IncomingMessage, ReceiptTraceEvent
+from bot_client.protocol.parsers import FriendProfile, IncomingMessage, ReceiptTraceEvent
 
 FriendPolicyAction = Literal[
     "friend_list_synced",
@@ -25,7 +26,7 @@ class FriendPolicyTraceEvent:
     username: str
     reason: str
 
-
+#保存 Agent 回复是否发送成功
 @dataclass(frozen=True, slots=True)
 class AgentReplyTraceEvent:
     status: AgentReplyStatus
@@ -34,8 +35,9 @@ class AgentReplyTraceEvent:
     receiver_id: int
     client_message_id: str | None
     reason: str
+    trace_summary: list[str] | None = None
 
-
+# 负责把已处理消息 ID、receipt、好友缓存、群消息、Agent 回复和去重 key 写入 JSON。
 class JsonMessageState:
     def __init__(self, path: str | Path) -> None:
         self._path = Path(path)
@@ -68,6 +70,7 @@ class JsonMessageState:
     def agent_reply_events(self) -> list[AgentReplyTraceEvent]:
         return list(self._agent_reply_events)
 
+    # 检查消息是否已处理过，用于本地去重
     def has_processed(self, message_id: int) -> bool:
         return message_id in self._processed_message_ids
 
@@ -107,6 +110,7 @@ class JsonMessageState:
             self._sent_agent_reply_dedup_keys.add(event.dedup_key)
         self._save()
 
+    # 加载文件
     def _load(self) -> None:
         if not self._path.exists():
             return
@@ -177,6 +181,7 @@ class JsonMessageState:
                     else None
                 ),
                 reason=str(item["reason"]),
+                trace_summary=_trace_summary_from_json(item.get("trace_summary")),
             )
             for item in data.get("agent_reply_events", [])
             if isinstance(item, dict)
@@ -238,6 +243,7 @@ class JsonMessageState:
                     "receiver_id": event.receiver_id,
                     "client_message_id": event.client_message_id,
                     "reason": event.reason,
+                    "trace_summary": event.trace_summary or [],
                 }
                 for event in self._agent_reply_events
             ],
@@ -248,3 +254,9 @@ class JsonMessageState:
             encoding="utf-8",
         )
         tmp_path.replace(self._path)
+
+
+def _trace_summary_from_json(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]

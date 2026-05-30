@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -27,8 +27,8 @@ from agent_service.schemas import ChatRequest
 from agent_service.style.style_store import StyleStore
 from agent_service.tools.builtin import build_default_tool_registry
 from agent_service.workflow import run_agent_chat, run_agent_workflow
-from bot_client.echo import EchoMessageProcessor
-from bot_client.protocol_parser import IncomingMessage
+from bot_client.messages.echo import EchoMessageProcessor
+from bot_client.protocol.parsers import IncomingMessage
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +236,8 @@ def _human_review(*, temp_root: Path) -> dict[str, Any]:
 
 
 def _eval_report() -> dict[str, Any]:
-    report = evaluate_datasets(load_eval_datasets("eval/datasets"))
+    datasets = load_eval_datasets("eval/datasets").model_copy(update={"real_cases": []})
+    report = evaluate_datasets(datasets)
     return {
         "name": "eval_report",
         "title": "Eval report",

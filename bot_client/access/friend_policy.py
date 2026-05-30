@@ -3,20 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from bot_client.config import BotClientSettings
-from bot_client.liteim_protocol import MessageType, Packet
-from bot_client.message_state import (
+from bot_client.messages.state import (
     FriendPolicyAction,
     FriendPolicyTraceEvent,
     JsonMessageState,
 )
-from bot_client.protocol_parser import (
+from bot_client.protocol.codec import MessageType, Packet
+from bot_client.protocol.parsers import (
     FRIEND_REQUEST_ACCEPTED,
     FRIEND_REQUEST_PENDING,
     FriendProfile,
     FriendRequest,
     parse_friend_action,
 )
+from bot_client.runtime.config import BotClientSettings
 
 
 @dataclass(slots=True)

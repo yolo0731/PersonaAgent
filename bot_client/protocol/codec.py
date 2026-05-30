@@ -421,6 +421,8 @@ def _append_value(tlv_type: TlvTypeValue, value: bytes, output: bytearray | None
     return encoded
 
 # 把字符串的 TLV 字段编码为二进制数据。
+_TLV_HEADER = struct.Struct("!HI")
+#!表示使用网络字节序（大端），H表示无符号短整数（2字节），I表示无符号整数（4字节）
 def append_string(
     tlv_type: TlvTypeValue, value: str, output: bytearray | None = None
 ) -> bytes:

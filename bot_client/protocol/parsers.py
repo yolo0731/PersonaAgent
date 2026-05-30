@@ -1,9 +1,10 @@
+# 把 LiteIM packet 解析成 BotClient 可理解的Python 对象
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
 
-from bot_client.liteim_protocol import (
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     ProtocolError,
@@ -53,7 +54,7 @@ class FriendRequest:
     profile: FriendProfile
     status: int
 
-
+# 把 TLV 字段解析成 Python 对象
 def parse_incoming_message(packet: Packet) -> IncomingMessage:
     fields = parse_tlv_map(packet.body)
     client_values = fields.get(int(TlvType.ClientMessageId), [])
@@ -149,6 +150,10 @@ def parse_offline_messages(packet: Packet) -> list[IncomingMessage]:
         )
         for index in range(count)
     ]
+
+
+def parse_history_messages(packet: Packet) -> list[IncomingMessage]:
+    return parse_offline_messages(packet)
 
 
 def parse_receipt(packet: Packet) -> ReceiptTraceEvent:

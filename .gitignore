@@ -1,7 +1,6 @@
 .env
 .venv/
 venv/
-
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -12,9 +11,23 @@ __pycache__/
 .coverage
 htmlcov/
 
-data/memory/*
-!data/memory/.gitignore
-data/chroma/*
-!data/chroma/.gitignore
+eval/reports/real_eval_*
+
+data/mianshi/*
+data/runtime/*
+!data/runtime/.gitignore
+data/state/agent_state/*
+!data/state/agent_state/.gitignore
+data/state/bot_state/*
+!data/state/bot_state/.gitignore
+data/state/memory/*
+!data/state/memory/.gitignore
+data/vector/chroma/*
+!data/vector/chroma/.gitignore
+data/authorized_style_records/consent_manifest.local.json
 data/authorized_style_records/raw/*
 !data/authorized_style_records/raw/.gitignore
+data/authorized_style_records/processed/*
+!data/authorized_style_records/processed/.gitignore
+!data/authorized_style_records/processed/style_samples.example.jsonl
+!data/authorized_style_records/processed/import_report.example.json

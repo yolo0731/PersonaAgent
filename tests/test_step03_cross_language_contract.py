@@ -9,8 +9,7 @@ from typing import Literal
 
 import pytest
 
-from bot_client.frame_decoder import FrameDecoder
-from bot_client.liteim_protocol import (
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     PacketHeader,
@@ -22,6 +21,7 @@ from bot_client.liteim_protocol import (
     encode_packet,
     parse_tlv_map,
 )
+from bot_client.protocol.frame_decoder import FrameDecoder
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = PROJECT_ROOT.parent

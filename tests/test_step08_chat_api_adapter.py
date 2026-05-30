@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter, sleep
 
 import httpx
 from fastapi.testclient import TestClient
 
-from bot_client.bot_client import BotIdentity
-from bot_client.liteim_protocol import (
+from bot_client.connection.client import BotIdentity
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     PacketHeader,
@@ -15,7 +16,7 @@ from bot_client.liteim_protocol import (
     append_string,
     append_uint64,
 )
-from bot_client.protocol_parser import FriendProfile, parse_incoming_message
+from bot_client.protocol.parsers import FriendProfile, parse_incoming_message
 
 
 def _chat_payload(run_id: str = "run-1") -> dict[str, object]:
@@ -128,7 +129,7 @@ def test_chat_endpoint_returns_structured_error_envelope() -> None:
 
 
 def test_chat_request_from_liteim_message_maps_fields_and_run_id() -> None:
-    from bot_client.agent_api import chat_request_from_message
+    from bot_client.agent.api import chat_request_from_message
 
     message = parse_incoming_message(
         _packet(MessageType.PrivateMessagePush, _private_message_body())
@@ -146,11 +147,41 @@ def test_chat_request_from_liteim_message_maps_fields_and_run_id() -> None:
     assert request.client_message_id == "alice-7001"
 
 
+def test_chat_request_from_liteim_message_includes_recent_context() -> None:
+    from bot_client.agent.api import chat_request_from_message
+
+    current = parse_incoming_message(
+        _packet(MessageType.PrivateMessagePush, _private_message_body(message_id=7003))
+    )
+    recent = [
+        parse_incoming_message(
+            _packet(
+                MessageType.HistoryResponse,
+                _private_message_body(message_id=7001, text="前一句上下文"),
+            )
+        ),
+        parse_incoming_message(
+            _packet(
+                MessageType.HistoryResponse,
+                _private_message_body(message_id=7002, text="后一句上下文"),
+            )
+        ),
+    ]
+
+    request = chat_request_from_message(current, recent_context=recent)
+
+    assert [item.message_id for item in request.recent_context] == [7001, 7002]
+    assert [item.text for item in request.recent_context] == [
+        "前一句上下文",
+        "后一句上下文",
+    ]
+
+
 async def test_agent_api_client_posts_chat_request_and_returns_command() -> None:
     from agent_service.config import Settings
     from agent_service.main import create_app
     from agent_service.schemas import ChatRequest
-    from bot_client.agent_api import AgentApiClient
+    from bot_client.agent.api import AgentApiClient
 
     app = create_app(Settings(_env_file=None))
     transport = httpx.ASGITransport(app=app)
@@ -169,9 +200,41 @@ async def test_agent_api_client_posts_chat_request_and_returns_command() -> None
     assert command.client_message_id == "pa-run-http-ok"
 
 
+async def test_chat_endpoint_runs_sync_handler_without_blocking_health() -> None:
+    import asyncio
+
+    from agent_service.config import Settings
+    from agent_service.main import create_app
+    from agent_service.schemas import ChatRequest, no_reply_command
+
+    def slow_handler(request: ChatRequest) -> object:
+        sleep(0.2)
+        return no_reply_command(request, "slow_handler_done")
+
+    app = create_app(Settings(_env_file=None), chat_handler=slow_handler)
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(
+        base_url="http://agent.test",
+        timeout=1.0,
+        transport=transport,
+    ) as client:
+        started_at = perf_counter()
+        chat_task = asyncio.create_task(client.post("/chat", json=_chat_payload("run-slow")))
+        await asyncio.sleep(0.01)
+        health_response = await client.get("/health")
+        health_elapsed = perf_counter() - started_at
+        chat_response = await chat_task
+
+    assert health_response.status_code == 200
+    assert health_response.json()["status"] == "ok"
+    assert health_elapsed < 0.15
+    assert chat_response.status_code == 200
+
+
 async def test_agent_api_client_fails_closed_on_timeout() -> None:
     from agent_service.schemas import ChatRequest
-    from bot_client.agent_api import AgentApiClient
+    from bot_client.agent.api import AgentApiClient
 
     def timeout_handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("timed out")
@@ -194,9 +257,9 @@ async def test_agent_service_processor_no_send_when_command_should_not_send(
     tmp_path: Path,
 ) -> None:
     from agent_service.schemas import AgentReplyCommand
-    from bot_client.agent_api import AgentServiceMessageProcessor
-    from bot_client.message_handler import BotMessageHandler
-    from bot_client.message_state import JsonMessageState
+    from bot_client.agent.api import AgentServiceMessageProcessor
+    from bot_client.messages.handler import BotMessageHandler
+    from bot_client.messages.state import JsonMessageState
 
     class NoSendAgentClient:
         async def chat_for_message(self, message: object) -> AgentReplyCommand:
@@ -229,13 +292,56 @@ async def test_agent_service_processor_no_send_when_command_should_not_send(
     assert client.sent_private_messages == []
 
 
+async def test_agent_service_processor_sends_fallback_when_service_unavailable(
+    tmp_path: Path,
+) -> None:
+    from agent_service.schemas import AgentReplyCommand
+    from bot_client.agent.api import AgentServiceMessageProcessor
+    from bot_client.messages.handler import BotMessageHandler
+    from bot_client.messages.state import JsonMessageState
+
+    class UnavailableAgentClient:
+        async def chat_for_message(self, message: object) -> AgentReplyCommand:
+            return AgentReplyCommand(
+                run_id="run-unavailable",
+                source_message_id=7001,
+                should_send=False,
+                receiver_id=1002,
+                text="",
+                client_message_id=None,
+                dedup_key="agent-reply:run-unavailable:7001",
+                trace_summary=["agent_service_unavailable"],
+                reason="agent_service_unavailable",
+            )
+
+    state = JsonMessageState(tmp_path / "state.json")
+    state.replace_friends([FriendProfile(1002, "alice", "Alice", True)])
+    client = FakeReliabilityClient()
+    handler = BotMessageHandler(
+        client=client,
+        state=state,
+        processor=AgentServiceMessageProcessor(UnavailableAgentClient()),
+        require_friendship=True,
+    )
+
+    await handler.handle_packet(
+        _packet(MessageType.PrivateMessagePush, _private_message_body())
+    )
+
+    assert client.delivery_acks == [7001]
+    assert client.read_acks == [(10011002, 7001)]
+    assert client.sent_private_messages == [
+        (1002, "我刚刚有点卡住了，你再发我一遍", "pa-unavailable-7001")
+    ]
+
+
 async def test_agent_service_processor_sends_command_text_and_client_message_id(
     tmp_path: Path,
 ) -> None:
     from agent_service.schemas import AgentReplyCommand
-    from bot_client.agent_api import AgentServiceMessageProcessor
-    from bot_client.message_handler import BotMessageHandler
-    from bot_client.message_state import JsonMessageState
+    from bot_client.agent.api import AgentServiceMessageProcessor
+    from bot_client.messages.handler import BotMessageHandler
+    from bot_client.messages.state import JsonMessageState
 
     class SendAgentClient:
         async def chat_for_message(self, message: object) -> AgentReplyCommand:

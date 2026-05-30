@@ -1,2 +1,1 @@
-"""PersonaAgent LiteIM client-side protocol package."""
-
+"""PersonaAgent BotClient package."""

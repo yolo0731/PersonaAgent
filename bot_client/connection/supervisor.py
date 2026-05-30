@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from bot_client.bot_client import BotClient
-from bot_client.config import BotClientSettings
+from bot_client.connection.client import BotClient
+from bot_client.runtime.config import BotClientSettings
 
+# 连接生命周期管理层
 
+# 这个类在后台创建 BotClient、连接、登录、等待断线，并在失败后按指数退避重试
 class BotClientSupervisor:
     """Keeps the LiteIM BotClient connected without owning AgentService state."""
 

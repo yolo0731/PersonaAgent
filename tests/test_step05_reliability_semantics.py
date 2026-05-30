@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bot_client.bot_client import BotIdentity
-from bot_client.liteim_protocol import (
+from bot_client.connection.client import BotIdentity
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     PacketHeader,
@@ -125,7 +125,11 @@ class FakeReliabilityClient:
 
 
 def test_protocol_parser_reads_single_and_repeated_message_packets() -> None:
-    from bot_client.protocol_parser import parse_incoming_message, parse_offline_messages
+    from bot_client.protocol.parsers import (
+        parse_history_messages,
+        parse_incoming_message,
+        parse_offline_messages,
+    )
 
     push = _packet(MessageType.PrivateMessagePush, _message_body(message_id=5001))
     message = parse_incoming_message(push)
@@ -145,10 +149,17 @@ def test_protocol_parser_reads_single_and_repeated_message_packets() -> None:
     assert [item.text for item in messages] == ["older offline", "newer offline"]
     assert [item.client_message_id for item in messages] == ["alice-1", "alice-2"]
 
+    history = _packet(MessageType.HistoryResponse, _repeated_message_body())
+    history_messages = parse_history_messages(history)
+
+    assert [item.message_id for item in history_messages] == [5001, 5002]
+    assert [item.text for item in history_messages] == ["older offline", "newer offline"]
+
 
 def test_protocol_builders_encode_liteim_reliability_requests() -> None:
-    from bot_client.protocol_builders import (
+    from bot_client.protocol.builders import (
         make_delivery_ack_body,
+        make_history_request_body,
         make_offline_ack_body,
         make_offline_request_body,
         make_private_message_body,
@@ -157,6 +168,19 @@ def test_protocol_builders_encode_liteim_reliability_requests() -> None:
 
     offline_request = parse_tlv_map(make_offline_request_body(limit=25))
     assert offline_request[int(TlvType.Limit)][0] == (25).to_bytes(8, "big")
+
+    history_request = parse_tlv_map(
+        make_history_request_body(
+            conversation_type=1,
+            conversation_id=10011002,
+            before_message_id=5009,
+            limit=8,
+        )
+    )
+    assert int.from_bytes(history_request[int(TlvType.ConversationType)][0], "big") == 1
+    assert int.from_bytes(history_request[int(TlvType.ConversationId)][0], "big") == 10011002
+    assert int.from_bytes(history_request[int(TlvType.MessageId)][0], "big") == 5009
+    assert int.from_bytes(history_request[int(TlvType.Limit)][0], "big") == 8
 
     offline_ack = parse_tlv_map(make_offline_ack_body([5001, 5002]))
     assert [int.from_bytes(value, "big") for value in offline_ack[int(TlvType.MessageId)]] == [
@@ -179,8 +203,8 @@ def test_protocol_builders_encode_liteim_reliability_requests() -> None:
 
 
 def test_json_message_state_persists_processed_messages_and_receipts(tmp_path: Path) -> None:
-    from bot_client.message_state import JsonMessageState
-    from bot_client.protocol_parser import ReceiptTraceEvent
+    from bot_client.messages.state import JsonMessageState
+    from bot_client.protocol.parsers import ReceiptTraceEvent
 
     state_path = tmp_path / "bot_state" / "state.json"
     state = JsonMessageState(state_path)
@@ -207,9 +231,9 @@ def test_json_message_state_persists_processed_messages_and_receipts(tmp_path: P
 async def test_message_handler_pulls_offline_after_login_and_acks_after_processing(
     tmp_path: Path,
 ) -> None:
-    from bot_client.message_handler import BotMessageHandler, MessageProcessingResult
-    from bot_client.message_state import JsonMessageState
-    from bot_client.protocol_parser import parse_offline_messages
+    from bot_client.messages.handler import BotMessageHandler, MessageProcessingResult
+    from bot_client.messages.state import JsonMessageState
+    from bot_client.protocol.parsers import parse_offline_messages
 
     messages = parse_offline_messages(
         _packet(MessageType.OfflineMessagesResponse, _message_body(message_id=5001))
@@ -240,8 +264,8 @@ async def test_message_handler_pulls_offline_after_login_and_acks_after_processi
 async def test_message_handler_sends_delivery_read_and_reply_with_client_message_id(
     tmp_path: Path,
 ) -> None:
-    from bot_client.message_handler import BotMessageHandler, MessageProcessingResult
-    from bot_client.message_state import JsonMessageState
+    from bot_client.messages.handler import BotMessageHandler, MessageProcessingResult
+    from bot_client.messages.state import JsonMessageState
 
     client = FakeReliabilityClient()
     processed: list[int] = []
@@ -272,8 +296,8 @@ async def test_message_handler_sends_delivery_read_and_reply_with_client_message
 async def test_message_handler_deduplicates_processed_messages_across_restarts(
     tmp_path: Path,
 ) -> None:
-    from bot_client.message_handler import BotMessageHandler, MessageProcessingResult
-    from bot_client.message_state import JsonMessageState
+    from bot_client.messages.handler import BotMessageHandler, MessageProcessingResult
+    from bot_client.messages.state import JsonMessageState
 
     state_path = tmp_path / "state.json"
     packet = _packet(MessageType.PrivateMessagePush, _message_body(message_id=5001))
@@ -307,8 +331,8 @@ async def test_message_handler_deduplicates_processed_messages_across_restarts(
 
 
 async def test_message_handler_ignores_messages_sent_by_bot_itself(tmp_path: Path) -> None:
-    from bot_client.message_handler import BotMessageHandler, MessageProcessingResult
-    from bot_client.message_state import JsonMessageState
+    from bot_client.messages.handler import BotMessageHandler, MessageProcessingResult
+    from bot_client.messages.state import JsonMessageState
 
     client = FakeReliabilityClient()
     processed: list[int] = []
@@ -336,8 +360,8 @@ async def test_message_handler_ignores_messages_sent_by_bot_itself(tmp_path: Pat
 
 
 async def test_message_handler_records_delivery_and_read_receipts(tmp_path: Path) -> None:
-    from bot_client.message_handler import BotMessageHandler, MessageProcessingResult
-    from bot_client.message_state import JsonMessageState
+    from bot_client.messages.handler import BotMessageHandler, MessageProcessingResult
+    from bot_client.messages.state import JsonMessageState
 
     state = JsonMessageState(tmp_path / "state.json")
     handler = BotMessageHandler(

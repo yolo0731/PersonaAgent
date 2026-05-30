@@ -1,4 +1,5 @@
 from agent_service.generation.reply_generator import (
+    GENERATION_FALLBACK_TEXT,
     GenerationResult,
     GenerationTrace,
     LLMReplyGenerator,
@@ -6,6 +7,7 @@ from agent_service.generation.reply_generator import (
 )
 
 __all__ = [
+    "GENERATION_FALLBACK_TEXT",
     "GenerationResult",
     "GenerationTrace",
     "LLMReplyGenerator",

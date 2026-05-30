@@ -6,11 +6,13 @@ from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from agent_service.llm import LLMClient, MockLLMClient
 from agent_service.persona import PersonaPrompt
 from agent_service.schemas import ChatRequest
+
+GENERATION_FALLBACK_TEXT = "我刚刚有点卡住了，先不乱回你，你再发我一遍。"
 
 
 class ReplyDraft(BaseModel):
@@ -86,11 +88,11 @@ class LLMReplyGenerator:
                         used_style_sample_ids=draft.used_style_sample_ids,
                     ),
                 )
-            except (ValidationError, ValueError, RuntimeError, TypeError) as exc:
+            except Exception as exc:
                 error_message = str(exc)
 
         fallback = ReplyDraft(
-            reply_text=f"mock reply: {request.text}",
+            reply_text=GENERATION_FALLBACK_TEXT,
             reason="llm_fallback",
             used_knowledge_ids=context_ids.knowledge,
             used_memory_ids=context_ids.memory,

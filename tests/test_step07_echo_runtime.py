@@ -4,8 +4,8 @@ import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bot_client.bot_client import BotIdentity
-from bot_client.liteim_protocol import (
+from bot_client.connection.client import BotIdentity
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     PacketHeader,
@@ -13,7 +13,7 @@ from bot_client.liteim_protocol import (
     append_string,
     append_uint64,
 )
-from bot_client.protocol_parser import FriendProfile, IncomingMessage, parse_incoming_message
+from bot_client.protocol.parsers import FriendProfile, IncomingMessage, parse_incoming_message
 
 
 def _packet(msg_type: MessageType, body: bytes, seq_id: int = 0) -> Packet:
@@ -144,7 +144,7 @@ async def _wait_until(predicate: object, timeout: float = 1.0) -> None:
 
 
 def test_echo_processor_returns_original_text_only_when_enabled() -> None:
-    from bot_client.echo import EchoMessageProcessor
+    from bot_client.messages.echo import EchoMessageProcessor
 
     message = _incoming_message(message_id=7001, text="ping")
 
@@ -158,8 +158,8 @@ def test_echo_processor_returns_original_text_only_when_enabled() -> None:
 async def test_echo_runtime_syncs_friend_policy_before_offline_echo(
     tmp_path: Path,
 ) -> None:
-    from bot_client.config import BotClientSettings
-    from bot_client.runtime import EchoBotRuntime
+    from bot_client.runtime.app import EchoBotRuntime
+    from bot_client.runtime.config import BotClientSettings
 
     client = FakeEchoClient(
         friends=[FriendProfile(1002, "alice", "Alice", True)],
@@ -194,8 +194,8 @@ async def test_echo_runtime_syncs_friend_policy_before_offline_echo(
 async def test_echo_runtime_consumes_live_private_push_and_replies(
     tmp_path: Path,
 ) -> None:
-    from bot_client.config import BotClientSettings
-    from bot_client.runtime import EchoBotRuntime
+    from bot_client.runtime.app import EchoBotRuntime
+    from bot_client.runtime.config import BotClientSettings
 
     client = FakeEchoClient(friends=[FriendProfile(1002, "alice", "Alice", True)])
     runtime = EchoBotRuntime(
@@ -224,8 +224,8 @@ async def test_echo_runtime_consumes_live_private_push_and_replies(
 async def test_echo_runtime_deduplicates_offline_messages_across_restarts(
     tmp_path: Path,
 ) -> None:
-    from bot_client.config import BotClientSettings
-    from bot_client.runtime import EchoBotRuntime
+    from bot_client.runtime.app import EchoBotRuntime
+    from bot_client.runtime.config import BotClientSettings
 
     state_path = tmp_path / "state.json"
     settings = BotClientSettings(_env_file=None, echo_mode=True)
@@ -254,8 +254,8 @@ async def test_echo_runtime_deduplicates_offline_messages_across_restarts(
 
 
 async def test_echo_runtime_respects_echo_mode_disabled(tmp_path: Path) -> None:
-    from bot_client.config import BotClientSettings
-    from bot_client.runtime import EchoBotRuntime
+    from bot_client.runtime.app import EchoBotRuntime
+    from bot_client.runtime.config import BotClientSettings
 
     client = FakeEchoClient(friends=[FriendProfile(1002, "alice", "Alice", True)])
     runtime = EchoBotRuntime(
@@ -276,8 +276,8 @@ async def test_echo_runtime_respects_echo_mode_disabled(tmp_path: Path) -> None:
 
 
 async def test_echo_runtime_records_group_push_without_reply(tmp_path: Path) -> None:
-    from bot_client.config import BotClientSettings
-    from bot_client.runtime import EchoBotRuntime
+    from bot_client.runtime.app import EchoBotRuntime
+    from bot_client.runtime.config import BotClientSettings
 
     client = FakeEchoClient(friends=[FriendProfile(1002, "alice", "Alice", True)])
     runtime = EchoBotRuntime(

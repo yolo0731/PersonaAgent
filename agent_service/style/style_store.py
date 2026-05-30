@@ -11,6 +11,7 @@ from agent_service.governance.data_manifest import ProcessedStyleSample
 from agent_service.rag.documents import MetadataValue, RetrievalTrace
 from agent_service.rag.embeddings import EmbeddingClient
 from agent_service.style.features import StyleFeatureExtractor, StyleFeatures
+from agent_service.style.filters import is_learnable_style_text
 
 
 class RetrievedStyleSample(BaseModel):
@@ -65,16 +66,28 @@ class StyleStore:
         self._feature_extractor = feature_extractor or StyleFeatureExtractor()
 
     def index_samples(self, samples: Sequence[ProcessedStyleSample]) -> int:
-        if not samples:
+        filtered_samples = [
+            sample
+            for sample in samples
+            if _is_indexable_style_sample(sample) and is_learnable_style_text(sample.text)
+        ]
+        if not filtered_samples:
             return 0
-        embeddings = self._embedding_client.embed_texts([sample.text for sample in samples])
-        self._collection.upsert(
-            ids=[sample.sample_id for sample in samples],
-            documents=[sample.text for sample in samples],
-            embeddings=embeddings,
-            metadatas=[_metadata_for_sample(sample) for sample in samples],
+        embeddings = self._embedding_client.embed_texts(
+            [sample.text for sample in filtered_samples]
         )
-        return len(samples)
+        self._collection.upsert(
+            ids=[sample.sample_id for sample in filtered_samples],
+            documents=[sample.text for sample in filtered_samples],
+            embeddings=embeddings,
+            metadatas=[_metadata_for_sample(sample) for sample in filtered_samples],
+        )
+        return len(filtered_samples)
+
+    def replace_samples(self, samples: Sequence[ProcessedStyleSample]) -> int:
+        self._delete_collection_if_exists()
+        self._collection = self._client.get_or_create_collection(name=self.collection_name)
+        return self.index_samples(samples)
 
     def retrieve_style(
         self,
@@ -158,6 +171,13 @@ class StyleStore:
         )
         return _parse_query_result(raw_result)
 
+    def _delete_collection_if_exists(self) -> None:
+        try:
+            self._client.delete_collection(name=self.collection_name)
+        except Exception as exc:  # pragma: no cover - chromadb uses version-specific errors.
+            if "does not exist" not in str(exc).casefold():
+                raise
+
 
 def _metadata_for_sample(sample: ProcessedStyleSample) -> dict[str, MetadataValue]:
     return {
@@ -171,6 +191,15 @@ def _metadata_for_sample(sample: ProcessedStyleSample) -> dict[str, MetadataValu
         "revoked": sample.revoked,
         "timestamp_ms": sample.timestamp_ms,
     }
+
+
+def _is_indexable_style_sample(sample: ProcessedStyleSample) -> bool:
+    return (
+        sample.active
+        and not sample.revoked
+        and "style_simulation" in sample.allowed_usage
+        and not sample.source.startswith("agent_runtime_reply:")
+    )
 
 
 def _parse_query_result(raw_result: object) -> list[RetrievedStyleSample]:

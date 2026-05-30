@@ -8,7 +8,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
-from agent_service.dialogue_policy import DialogueDecision, DialogueIntent, DialoguePolicy
+from agent_service.dialogue_policy import (
+    PRIVATE_CONVERSATION_TYPE,
+    DialogueDecision,
+    DialogueIntent,
+    DialoguePolicy,
+)
 from agent_service.generation import GenerationTrace, LLMReplyGenerator, ReplyDraft
 from agent_service.llm import LLMClient
 from agent_service.llm.base import LLMMessage
@@ -31,6 +36,8 @@ from agent_service.schemas import (
     no_reply_command,
     send_reply_command,
 )
+from agent_service.style.learning import StyleLearningStore
+from agent_service.style.pair_store import StylePairStore
 from agent_service.style.style_store import StyleStore
 from agent_service.tools import (
     ToolErrorEnvelope,
@@ -116,9 +123,11 @@ def make_initial_agent_state(request: ChatRequest) -> AgentState:
 
 def build_agent_graph(
     *,
+    dialogue_policy: DialoguePolicy | None = None,
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
+    style_pair_store: StylePairStore | None = None,
     tool_registry: ToolRegistry | None = None,
     persona_engine: PersonaEngine | None = None,
     llm_client: LLMClient | None = None,
@@ -126,14 +135,26 @@ def build_agent_graph(
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
+    style_pair_top_k: int = 3,
+    style_persona_id: str | None = None,
+    style_on_smalltalk: bool = False,
+    style_on_private_chat: bool = False,
+    auto_memory_on_chat: bool = False,
+    auto_memory_user_name: str = "用户",
+    auto_memory_persona_name: str = "PersonaAgent",
+    style_learning_store: StyleLearningStore | None = None,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     effective_persona_engine = persona_engine or PersonaEngine.from_default()
+    effective_dialogue_policy = dialogue_policy or DialoguePolicy()
     reply_generator = LLMReplyGenerator(
         llm_client=llm_client,
         max_retries=generation_max_retries,
     )
-    graph.add_node("dialogue_policy", _dialogue_policy)
+    graph.add_node(
+        "dialogue_policy",
+        lambda state: _dialogue_policy(state, dialogue_policy=effective_dialogue_policy),
+    )
     graph.add_node(
         "retrieve_context",
         lambda state: _retrieve_context(
@@ -141,9 +162,15 @@ def build_agent_graph(
             knowledge_retriever=knowledge_retriever,
             memory_store=memory_store,
             style_store=style_store,
+            style_pair_store=style_pair_store,
             rag_top_k=rag_top_k,
             memory_top_k=memory_top_k,
             style_top_k=style_top_k,
+            style_pair_top_k=style_pair_top_k,
+            style_persona_id=style_persona_id,
+            style_on_smalltalk=style_on_smalltalk,
+            style_on_private_chat=style_on_private_chat,
+            auto_memory_on_chat=auto_memory_on_chat,
         ),
     )
     graph.add_node(
@@ -163,7 +190,17 @@ def build_agent_graph(
         ),
     )
     graph.add_node("safety_check", _safety_check)
-    graph.add_node("finalize_reply", _finalize_reply)
+    graph.add_node(
+        "finalize_reply",
+        lambda state: _finalize_reply(
+            state,
+            memory_store=memory_store,
+            auto_memory_on_chat=auto_memory_on_chat,
+            auto_memory_user_name=auto_memory_user_name,
+            auto_memory_persona_name=auto_memory_persona_name,
+            style_learning_store=style_learning_store,
+        ),
+    )
 
     graph.add_edge(START, "dialogue_policy")
     graph.add_conditional_edges(
@@ -185,9 +222,11 @@ def build_agent_graph(
 def run_agent_workflow(
     request: ChatRequest,
     *,
+    dialogue_policy: DialoguePolicy | None = None,
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
+    style_pair_store: StylePairStore | None = None,
     tool_registry: ToolRegistry | None = None,
     persona_engine: PersonaEngine | None = None,
     llm_client: LLMClient | None = None,
@@ -195,11 +234,21 @@ def run_agent_workflow(
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
+    style_pair_top_k: int = 3,
+    style_persona_id: str | None = None,
+    style_on_smalltalk: bool = False,
+    style_on_private_chat: bool = False,
+    auto_memory_on_chat: bool = False,
+    auto_memory_user_name: str = "用户",
+    auto_memory_persona_name: str = "PersonaAgent",
+    style_learning_store: StyleLearningStore | None = None,
 ) -> AgentState:
     final_state = build_agent_graph(
+        dialogue_policy=dialogue_policy,
         knowledge_retriever=knowledge_retriever,
         memory_store=memory_store,
         style_store=style_store,
+        style_pair_store=style_pair_store,
         tool_registry=tool_registry,
         persona_engine=persona_engine,
         llm_client=llm_client,
@@ -207,6 +256,14 @@ def run_agent_workflow(
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
+        style_pair_top_k=style_pair_top_k,
+        style_persona_id=style_persona_id,
+        style_on_smalltalk=style_on_smalltalk,
+        style_on_private_chat=style_on_private_chat,
+        auto_memory_on_chat=auto_memory_on_chat,
+        auto_memory_user_name=auto_memory_user_name,
+        auto_memory_persona_name=auto_memory_persona_name,
+        style_learning_store=style_learning_store,
     ).invoke(make_initial_agent_state(request))
     return cast(AgentState, final_state)
 
@@ -214,10 +271,12 @@ def run_agent_workflow(
 def run_agent_chat(
     request: ChatRequest,
     *,
+    dialogue_policy: DialoguePolicy | None = None,
     review_store: HumanReviewStore | None = None,
     knowledge_retriever: KnowledgeRetriever | None = None,
     memory_store: MemoryStore | None = None,
     style_store: StyleStore | None = None,
+    style_pair_store: StylePairStore | None = None,
     tool_registry: ToolRegistry | None = None,
     persona_engine: PersonaEngine | None = None,
     llm_client: LLMClient | None = None,
@@ -225,12 +284,22 @@ def run_agent_chat(
     rag_top_k: int = 5,
     memory_top_k: int = 5,
     style_top_k: int = 8,
+    style_pair_top_k: int = 3,
+    style_persona_id: str | None = None,
+    style_on_smalltalk: bool = False,
+    style_on_private_chat: bool = False,
+    auto_memory_on_chat: bool = False,
+    auto_memory_user_name: str = "用户",
+    auto_memory_persona_name: str = "PersonaAgent",
+    style_learning_store: StyleLearningStore | None = None,
 ) -> AgentReplyCommand:
     state = run_agent_workflow(
         request,
+        dialogue_policy=dialogue_policy,
         knowledge_retriever=knowledge_retriever,
         memory_store=memory_store,
         style_store=style_store,
+        style_pair_store=style_pair_store,
         tool_registry=tool_registry,
         persona_engine=persona_engine,
         llm_client=llm_client,
@@ -238,6 +307,14 @@ def run_agent_chat(
         rag_top_k=rag_top_k,
         memory_top_k=memory_top_k,
         style_top_k=style_top_k,
+        style_pair_top_k=style_pair_top_k,
+        style_persona_id=style_persona_id,
+        style_on_smalltalk=style_on_smalltalk,
+        style_on_private_chat=style_on_private_chat,
+        auto_memory_on_chat=auto_memory_on_chat,
+        auto_memory_user_name=auto_memory_user_name,
+        auto_memory_persona_name=auto_memory_persona_name,
+        style_learning_store=style_learning_store,
     )
     safety = state["safety_result"]
     thread_id = make_thread_id(request) if review_store is not None else None
@@ -271,8 +348,12 @@ def resume_agent_review(thread_id: str, review_store: HumanReviewStore) -> Agent
     return resume_human_review(thread_id, review_store)
 
 
-def _dialogue_policy(state: AgentState) -> dict[str, object]:
-    decision = DialoguePolicy().decide(state["request"])
+def _dialogue_policy(
+    state: AgentState,
+    *,
+    dialogue_policy: DialoguePolicy,
+) -> dict[str, object]:
+    decision = dialogue_policy.decide(state["request"])
     return {
         "decision": decision,
         "trace": _append_trace(state, "dialogue_policy", decision.reason),
@@ -291,26 +372,80 @@ def _retrieve_context(
     knowledge_retriever: KnowledgeRetriever | None,
     memory_store: MemoryStore | None,
     style_store: StyleStore | None,
+    style_pair_store: StylePairStore | None,
     rag_top_k: int,
     memory_top_k: int,
     style_top_k: int,
+    style_pair_top_k: int,
+    style_persona_id: str | None,
+    style_on_smalltalk: bool,
+    style_on_private_chat: bool,
+    auto_memory_on_chat: bool,
 ) -> dict[str, object]:
-    if state["decision"].need_memory and memory_store is not None:
-        return _retrieve_memory_context(state, memory_store=memory_store, memory_top_k=memory_top_k)
+    contexts: list[str] = []
+    traces: list[RetrievalTrace] = []
+    actions: list[str] = []
 
-    if state["decision"].need_style and style_store is not None:
-        return _retrieve_style_context(state, style_store=style_store, style_top_k=style_top_k)
+    if state["decision"].need_memory and memory_store is not None:
+        memory_result = _retrieve_memory_context(
+            state,
+            memory_store=memory_store,
+            memory_top_k=memory_top_k,
+        )
+        if state["decision"].intent == DialogueIntent.MEMORY_UPDATE:
+            return memory_result
+        _extend_retrieval_update(state, contexts, traces, actions, memory_result)
 
     if state["decision"].need_knowledge and knowledge_retriever is not None:
         retrieval = knowledge_retriever.retrieve(state["request"].text, top_k=rag_top_k)
+        contexts.extend(result.text for result in retrieval.results)
+        traces.append(retrieval.trace)
+        actions.append(f"knowledge_top_k={retrieval.trace.result_count}")
+
+    if _should_retrieve_memory_for_chat(state, memory_store, auto_memory_on_chat):
+        assert memory_store is not None
+        memory_retrieval = memory_store.retrieve_memory(
+            user_id=state["request"].sender_id,
+            query=state["request"].text,
+            top_k=memory_top_k,
+        )
+        contexts.extend(f"memory: {result.content}" for result in memory_retrieval.results)
+        traces.append(memory_retrieval.trace)
+        actions.append(f"memory_top_k={memory_retrieval.trace.result_count}")
+
+    if state["decision"].need_style and style_store is not None:
+        style_result = _retrieve_style_context(
+            state,
+            style_store=style_store,
+            style_pair_store=style_pair_store,
+            style_top_k=style_top_k,
+            style_pair_top_k=style_pair_top_k,
+            style_persona_id=style_persona_id,
+        )
+        return _merge_retrieval_update(state, contexts, traces, actions, style_result)
+
+    if _should_use_style_for_private_chat(
+        state,
+        style_store=style_store,
+        style_on_smalltalk=style_on_smalltalk,
+        style_on_private_chat=style_on_private_chat,
+    ):
+        assert style_store is not None
+        style_result = _retrieve_style_context(
+            state,
+            style_store=style_store,
+            style_pair_store=style_pair_store,
+            style_top_k=style_top_k,
+            style_pair_top_k=style_pair_top_k,
+            style_persona_id=style_persona_id,
+        )
+        return _merge_retrieval_update(state, contexts, traces, actions, style_result)
+
+    if contexts or traces:
         return {
-            "retrieved_context": [result.text for result in retrieval.results],
-            "retrieval_trace": [retrieval.trace],
-            "trace": _append_trace(
-                state,
-                "retrieve_context",
-                f"knowledge_top_k={retrieval.trace.result_count}",
-            ),
+            "retrieved_context": contexts,
+            "retrieval_trace": traces,
+            "trace": _append_trace(state, "retrieve_context", ";".join(actions)),
         }
     return {
         "retrieved_context": [],
@@ -323,36 +458,182 @@ def _retrieve_style_context(
     state: AgentState,
     *,
     style_store: StyleStore,
+    style_pair_store: StylePairStore | None,
     style_top_k: int,
+    style_pair_top_k: int,
+    style_persona_id: str | None,
 ) -> dict[str, object]:
     request = state["request"]
+    persona_id = style_persona_id or str(request.sender_id)
     retrieval = style_store.retrieve_style(
-        persona_id=str(request.sender_id),
+        persona_id=persona_id,
         query=request.text,
         top_k=style_top_k,
     )
+    pair_context, pair_traces, pair_actions = _retrieve_style_pair_context(
+        request_text=request.text,
+        persona_id=persona_id,
+        style_pair_store=style_pair_store,
+        style_pair_top_k=style_pair_top_k,
+    )
     if retrieval.fallback_reason is not None:
         return {
-            "retrieved_context": [f"style_fallback: {retrieval.fallback_reason}"],
-            "retrieval_trace": [retrieval.trace],
+            "retrieved_context": [
+                f"style_fallback: {retrieval.fallback_reason}",
+                *pair_context,
+            ],
+            "retrieval_trace": [retrieval.trace, *pair_traces],
             "trace": _append_trace(
                 state,
                 "retrieve_context",
-                f"style_fallback={retrieval.fallback_reason}",
+                ";".join(
+                    [
+                        f"style_fallback={retrieval.fallback_reason}",
+                        *pair_actions,
+                    ]
+                ),
             ),
         }
     return {
         "retrieved_context": [
             f"style_summary: {retrieval.summary.text}",
             *[f"style_example:{sample.sample_id}: {sample.text}" for sample in retrieval.results],
+            *pair_context,
         ],
-        "retrieval_trace": [retrieval.trace],
+        "retrieval_trace": [retrieval.trace, *pair_traces],
         "trace": _append_trace(
             state,
             "retrieve_context",
-            f"style_top_k={retrieval.trace.result_count}",
+            ";".join(
+                [
+                    f"style_top_k={retrieval.trace.result_count}",
+                    *pair_actions,
+                ]
+            ),
         ),
     }
+
+
+def _retrieve_style_pair_context(
+    *,
+    request_text: str,
+    persona_id: str,
+    style_pair_store: StylePairStore | None,
+    style_pair_top_k: int,
+) -> tuple[list[str], list[RetrievalTrace], list[str]]:
+    if style_pair_store is None:
+        return [], [], []
+    pair_retrieval = style_pair_store.retrieve_pairs(
+        persona_id=persona_id,
+        query=request_text,
+        top_k=style_pair_top_k,
+    )
+    contexts = [
+        (
+            f"style_pair:{result.pair.pair_id}: "
+            f"{result.pair.self_speaker}: {result.pair.self_text} -> "
+            f"{result.pair.target_speaker}: {result.pair.target_reply}"
+        )
+        for result in pair_retrieval.results
+    ]
+    return (
+        contexts,
+        [pair_retrieval.trace],
+        [f"style_pair_top_k={pair_retrieval.trace.result_count}"],
+    )
+
+
+def _merge_retrieval_update(
+    state: AgentState,
+    contexts: list[str],
+    traces: list[RetrievalTrace],
+    actions: list[str],
+    update: dict[str, object],
+) -> dict[str, object]:
+    _extend_retrieval_update(state, contexts, traces, actions, update)
+    return {
+        "retrieved_context": contexts,
+        "retrieval_trace": traces,
+        "trace": _append_trace(state, "retrieve_context", ";".join(actions)),
+    }
+
+
+def _extend_retrieval_update(
+    state: AgentState,
+    contexts: list[str],
+    traces: list[RetrievalTrace],
+    actions: list[str],
+    update: dict[str, object],
+) -> None:
+    update_context = update.get("retrieved_context", [])
+    if isinstance(update_context, list):
+        contexts.extend(str(item) for item in update_context)
+    update_trace = update.get("retrieval_trace", [])
+    if isinstance(update_trace, list):
+        traces.extend(
+            trace for trace in update_trace if isinstance(trace, RetrievalTrace)
+        )
+    update_events = update.get("trace", [])
+    if isinstance(update_events, list):
+        for event in update_events[len(state["trace"]) :]:
+            if isinstance(event, TraceEvent) and event.node == "retrieve_context":
+                actions.append(event.action)
+
+
+def _should_retrieve_memory_for_chat(
+    state: AgentState,
+    memory_store: MemoryStore | None,
+    auto_memory_on_chat: bool,
+) -> bool:
+    if not auto_memory_on_chat or memory_store is None:
+        return False
+    decision = state["decision"]
+    return (
+        state["request"].conversation_type == PRIVATE_CONVERSATION_TYPE
+        and decision.should_reply
+        and decision.intent
+        in {
+            DialogueIntent.SMALLTALK,
+            DialogueIntent.STYLE_CHAT,
+            DialogueIntent.KNOWLEDGE_QUESTION,
+        }
+    )
+
+
+def _should_use_style_for_private_chat(
+    state: AgentState,
+    *,
+    style_store: StyleStore | None,
+    style_on_smalltalk: bool,
+    style_on_private_chat: bool,
+) -> bool:
+    if style_store is None:
+        return False
+    decision = state["decision"]
+    if style_on_smalltalk and decision.intent == DialogueIntent.SMALLTALK:
+        return (
+            state["request"].conversation_type == PRIVATE_CONVERSATION_TYPE
+            and decision.should_reply
+            and not decision.need_knowledge
+            and not decision.need_memory
+            and not decision.need_tool
+            and not decision.need_human_review
+        )
+    if not style_on_private_chat:
+        return False
+    return (
+        state["request"].conversation_type == PRIVATE_CONVERSATION_TYPE
+        and decision.should_reply
+        and not decision.need_tool
+        and not decision.need_human_review
+        and decision.intent
+        in {
+            DialogueIntent.SMALLTALK,
+            DialogueIntent.KNOWLEDGE_QUESTION,
+            DialogueIntent.MEMORY_QUERY,
+            DialogueIntent.HISTORY_SUMMARY,
+        }
+    )
 
 
 def _retrieve_memory_context(
@@ -544,7 +825,15 @@ def _safety_check(state: AgentState) -> dict[str, object]:
     return updates
 
 
-def _finalize_reply(state: AgentState) -> dict[str, object]:
+def _finalize_reply(
+    state: AgentState,
+    *,
+    memory_store: MemoryStore | None,
+    auto_memory_on_chat: bool,
+    auto_memory_user_name: str,
+    auto_memory_persona_name: str,
+    style_learning_store: StyleLearningStore | None,
+) -> dict[str, object]:
     request = state["request"]
     if not state["decision"].should_reply:
         action = "dialogue_policy_no_reply"
@@ -575,10 +864,97 @@ def _finalize_reply(state: AgentState) -> dict[str, object]:
             reason="finalized_reply",
             trace_summary=_trace_summary(state, action),
         )
+    trace = _append_trace(state, "finalize_reply", action)
+    if command.should_send:
+        saved_count = _save_auto_chat_memory(
+            state,
+            memory_store=memory_store,
+            enabled=auto_memory_on_chat,
+            user_name=auto_memory_user_name,
+            persona_name=auto_memory_persona_name,
+        )
+        if saved_count:
+            trace = [
+                *trace,
+                TraceEvent(
+                    node="finalize_reply",
+                    action=f"auto_memory_saved={saved_count}",
+                ),
+            ]
+        reinforced = _reinforce_style_from_reply(
+            state,
+            style_learning_store=style_learning_store,
+        )
+        if reinforced:
+            trace = [*trace, TraceEvent(node="finalize_reply", action="style_feedback_saved=1")]
     return {
         "final_command": command,
-        "trace": _append_trace(state, "finalize_reply", action),
+        "trace": trace,
     }
+
+
+def _save_auto_chat_memory(
+    state: AgentState,
+    *,
+    memory_store: MemoryStore | None,
+    enabled: bool,
+    user_name: str,
+    persona_name: str,
+) -> int:
+    if not enabled or memory_store is None or not _is_auto_memory_candidate(state):
+        return 0
+    request = state["request"]
+    draft = state["draft"].strip()
+    saved_count = 0
+    if request.text.strip():
+        memory_store.save_memory(
+            user_id=request.sender_id,
+            content=f"{user_name}说：{request.text.strip()}",
+            source_message_id=request.message_id,
+            memory_id=f"chat-user-{request.sender_id}-{request.message_id}",
+        )
+        saved_count += 1
+    if draft:
+        memory_store.save_memory(
+            user_id=request.sender_id,
+            content=f"{persona_name}回复：{draft}",
+            source_message_id=request.message_id,
+            memory_id=f"chat-agent-{request.sender_id}-{request.message_id}",
+        )
+        saved_count += 1
+    return saved_count
+
+
+def _reinforce_style_from_reply(
+    state: AgentState,
+    *,
+    style_learning_store: StyleLearningStore | None,
+) -> bool:
+    if style_learning_store is None or not _is_auto_memory_candidate(state):
+        return False
+    generation_trace = state["generation_trace"]
+    if generation_trace is not None and generation_trace.fallback_used:
+        return False
+    sample = style_learning_store.learn_reply(
+        text=state["draft"],
+        source_message_id=state["request"].message_id,
+        timestamp_ms=state["request"].timestamp_ms,
+    )
+    return sample is not None
+
+
+def _is_auto_memory_candidate(state: AgentState) -> bool:
+    return (
+        state["request"].conversation_type == PRIVATE_CONVERSATION_TYPE
+        and state["decision"].intent
+        in {
+            DialogueIntent.SMALLTALK,
+            DialogueIntent.STYLE_CHAT,
+            DialogueIntent.KNOWLEDGE_QUESTION,
+            DialogueIntent.MEMORY_QUERY,
+            DialogueIntent.HISTORY_SUMMARY,
+        }
+    )
 
 
 def _append_trace(state: AgentState, node: str, action: str) -> list[TraceEvent]:
@@ -638,12 +1014,21 @@ def _tool_error_result(tool_name: str, code: str, message: str) -> ToolExecution
 
 def _style_sources_from_context(context: list[str]) -> list[LeakageSource]:
     sources: list[LeakageSource] = []
-    prefix = "style_example:"
     for item in context:
-        if not item.startswith(prefix):
-            continue
-        payload = item[len(prefix) :]
-        source_id, separator, text = payload.partition(":")
-        if separator and source_id.strip() and text.strip():
-            sources.append(LeakageSource(source_id=source_id.strip(), text=text.strip()))
+        if item.startswith("style_example:"):
+            payload = item[len("style_example:") :]
+            source_id, separator, text = payload.partition(":")
+            if separator and source_id.strip() and text.strip():
+                sources.append(LeakageSource(source_id=source_id.strip(), text=text.strip()))
+        elif item.startswith("style_pair:"):
+            payload = item[len("style_pair:") :]
+            source_id, separator, text = payload.partition(":")
+            if not separator or not source_id.strip() or not text.strip():
+                continue
+            _context_text, arrow, target_text = text.partition("->")
+            leakage_text = target_text if arrow else text
+            if leakage_text.strip():
+                sources.append(
+                    LeakageSource(source_id=source_id.strip(), text=leakage_text.strip())
+                )
     return sources

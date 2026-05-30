@@ -1,6 +1,8 @@
 from agent_service.eval.cases import (
     EvalDatasets,
     IntegrationEvalCase,
+    RealEvalCase,
+    RealEvalCaseResult,
     RetrievalEvalCase,
     SafetyEvalCase,
     StyleEvalCase,
@@ -15,6 +17,8 @@ __all__ = [
     "EvalOptions",
     "EvalRunOutput",
     "IntegrationEvalCase",
+    "RealEvalCase",
+    "RealEvalCaseResult",
     "RetrievalEvalCase",
     "SafetyEvalCase",
     "StyleEvalCase",

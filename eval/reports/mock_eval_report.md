@@ -1,6 +1,6 @@
 # PersonaAgent Mock Evaluation Report
 
-- Generated at: `2026-05-24T19:51:40.735879+00:00`
+- Generated at: `2026-05-28T12:47:42.033108+00:00`
 - JSON report: `mock_eval_report.json`
 
 ## Sample Size
@@ -12,6 +12,7 @@
 | Style | 2 |
 | Safety | 3 |
 | LiteIM Integration | 4 |
+| Real workflow cases | 0 |
 | Total | 13 |
 
 ## Metrics

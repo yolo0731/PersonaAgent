@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.run_mock_demo import run_mock_demo
+from scripts.demo.run_mock_demo import run_mock_demo
 
 
 def test_mock_demo_script_writes_required_scenario_outputs(tmp_path: Path) -> None:
@@ -50,7 +50,7 @@ def test_final_docs_include_diagrams_demo_and_all_24_tutorials() -> None:
     assert "Echo mode" in demo_text
     assert "Knowledge RAG" in demo_text
     assert "Eval report" in demo_text
-    assert "scripts/run_mock_demo.py" in demo_text
+    assert "scripts/demo/run_mock_demo.py" in demo_text
 
     tutorials = sorted(Path("docs/tutorials").glob("step*.md"))
     assert len(tutorials) == 24

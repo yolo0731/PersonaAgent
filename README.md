@@ -1,194 +1,171 @@
 # PersonaAgent
 
-PersonaAgent is project two in the `/home/yolo/jianli` workspace. It is planned as a Python BotClient plus FastAPI AgentService AI Agent Worker.
+PersonaAgent is the second project in the `/home/yolo/jianli` workspace: a first-version Python BotClient plus FastAPI AgentService AI Agent Worker that connects to LiteIM as a normal TCP/TLV client account.
 
-Current implemented foundation:
+The core boundary is simple:
 
-- FastAPI `/health`
-- settings loaded from environment variables
-- `LLMClient` abstraction
-- `MockLLMClient`
-- OpenAI SDK compatible LLM client, configured for DeepSeek in real runtime mode
-- Python LiteIM V1 Packet/TLV protocol mirror
-- Python LiteIM V1 `FrameDecoder` for half-packet, sticky-packet, and error-state handling
-- Cross-language LiteIM protocol contract tests against the sibling C++ protocol implementation
-- Async LiteIM `BotClient` with TCP connect, login/register helpers, pending request matching, timeout cleanup, heartbeat, close/logout, and supervisor reconnect
-- LiteIM reliability helpers for offline pull/ACK, delivery ACK, read ACK, `ClientMessageId` replies, local message deduplication, and receipt trace storage
-- Friend request policy helpers for allowlisted Agent access, automatic accept/reject decisions, friend-list sync, accepted-friend pushes, and non-friend private-message blocking
-- Reliable Echo mode runtime that connects/login, syncs friends, processes offline messages, consumes live pushes, replies to private chats through `ClientMessageId`, and records group pushes without replying
-- AgentService `/chat` API with `ChatRequest`, `AgentReplyCommand`, structured error envelopes, and a mock reply handler
-- BotClient-side AgentService adapter that converts LiteIM messages into `/chat` requests and fails closed on AgentService timeout or malformed responses
-- LangGraph six-node Agent workflow skeleton with deterministic mock nodes, no-reply early finalize, safety-block no-send behavior, and per-node trace state
-- DialoguePolicy structured decision schema with mock structured-output validation, retry, fallback rules, intent classification, and need flags for knowledge, memory, style, tools, and human review
-- SQLite-backed checkpoint and Human Review skeleton with pending review storage, approve/reject/edit/resume APIs, thread IDs, and idempotent resume no-send behavior
-- Knowledge RAG pipeline with document loading, recursive chunking, mock embeddings, persistent Chroma collection, active metadata filtering, top-k retrieval, and workflow trace integration
-- Memory RAG pipeline with SQLite memory records, Chroma memory collection, user-scoped retrieval, active filtering, `/remember`, `/forget`, and workflow context injection
-- Authorized data governance pipeline with consent manifest validation, PII redaction, processed style sample import, revocation-aware active status, ignored raw data folders, and import reports
-- Authorized Style RAG pipeline with a dedicated Chroma style collection, `persona_id` / `consent_id` / `active` filtering, deterministic style feature extraction, insufficient-sample fallback, and workflow trace/context injection
-- Verbatim leakage guard with n-gram overlap, longest common substring ratio, PII second scan, style source-id checks, deterministic rewrite/block actions, workflow safety integration, and leakage metrics
-- Tool Calling framework with a registry, Pydantic input/output schemas, timeout trace, structured error envelopes, idempotency keys for side-effect tools, safe memory/profile/context tools, and workflow state integration
-- PersonaEngine with versioned `persona.yaml`, required identity notice, prompt templates, style instruction, safety boundaries, prompt metadata, and used context ids
-- GenerateReply LLM layer with `ReplyDraft`, structured-output retries, fallback drafts, model/token/latency trace, and context-id attribution
-- SafetyGuard policy layer with AI identity notice checks, impersonation blocking, unauthorized style mimicry blocking, privacy leak blocking, high-risk-domain human review routing, safety trace fields, and existing verbatim leakage reuse
-- FinalizeReply command layer with idempotent `AgentReplyCommand`, stable `dedup_key`, conversation metadata, trace summary, no-send reasons, and checkpointed final commands
-- BotClient AgentReplyCommand executor with LiteIM private-message sends, sent/failed trace records, sent-dedup retry protection, no-op command handling, and self-push suppression
-- Evaluation suite with JSONL datasets, RAG/Memory Hit@5, Style Similarity, Verbatim Leakage Rate, Safety Violation Rate, Human Review Trigger Rate, latency, token-cost, LiteIM integration metrics, A/B variant reporting, and JSON/Markdown report output
-- Final architecture, demo guide, mock demo transcript, terminal-style screenshot asset, and 24 Step tutorials
-- pytest / pytest-asyncio / ruff / mypy configuration
-
-The project still does not implement a full production compliance system, a human review UI, or a large-scale benchmark.
-
-## Local Runtime Config
-
-PersonaAgent uses DeepSeek as the default real LLM provider through the OpenAI SDK compatible API.
-
-Create local `.env` from `.env.example`, then put your real DeepSeek key in `OPENAI_API_KEY`. Do not commit `.env`.
-
-```env
-AGENT_HOST=127.0.0.1
-AGENT_PORT=8088
-AGENT_SERVICE_URL=http://127.0.0.1:8088
-AGENT_REQUEST_TIMEOUT_SECONDS=5.0
-AGENT_STATE_DB_PATH=data/agent_state/state.sqlite3
-CHROMA_PATH=data/chroma
-MEMORY_DB_PATH=data/memory/memory.sqlite3
-MEMORY_TOP_K=5
-KNOWLEDGE_DOCS_PATH=data/knowledge_docs
-RAG_CHUNK_SIZE=500
-RAG_CHUNK_OVERLAP=50
-RAG_TOP_K=5
-STYLE_TOP_K=8
-PERSONA_CONFIG_PATH=agent_service/persona/persona.yaml
-LITEIM_HOST=127.0.0.1
-LITEIM_PORT=9000
-BOT_USERNAME=persona_agent_bot
-BOT_PASSWORD=change_me
-BOT_NICKNAME=PersonaAgent
-BOT_STATE_PATH=data/bot_state/state.json
-BOT_OFFLINE_MESSAGE_LIMIT=100
-BOT_ALLOWED_USER_IDS=
-BOT_ALLOWED_USERNAMES=
-BOT_AUTO_ACCEPT_FRIEND_REQUESTS=true
-BOT_REJECT_NON_ALLOWLISTED_FRIEND_REQUESTS=true
-ECHO_MODE=true
-LLM_PROVIDER=deepseek
-LLM_MODEL=deepseek-v4-flash
-OPENAI_API_KEY=replace_with_deepseek_api_key
-OPENAI_BASE_URL=https://api.deepseek.com
-EVAL_PROMPT_TOKEN_COST_PER_1K=0
-EVAL_COMPLETION_TOKEN_COST_PER_1K=0
+```text
+LiteIM user client
+  -> LiteIM C++ server
+  -> Python BotClient
+  -> FastAPI AgentService
+  -> LangGraph workflow
+  -> AgentReplyCommand
+  -> Python BotClient
+  -> LiteIM
+  -> user client
 ```
 
-`BotClient` connects to LiteIM as a normal user over the same TCP/TLV protocol. `AgentService` does not hold the LiteIM TCP connection and does not directly send LiteIM packets.
+`BotClient` owns the LiteIM TCP connection. `AgentService` owns the AI workflow. `AgentService` does not hold a LiteIM socket, does not access LiteIM MySQL/Redis, and only returns structured commands for BotClient to execute.
 
-`BOT_ALLOWED_USER_IDS` and `BOT_ALLOWED_USERNAMES` restrict who can become friends with the Agent account. By default, allowlisted requests are accepted and non-allowlisted requests are rejected.
+## What It Includes
 
-`ECHO_MODE=true` enables the Step 07 smoke path: BotClient replies to private messages with the same text after delivery/read ACK and message deduplication. It does not call DeepSeek or AgentService.
+- Python LiteIM Packet/TLV protocol mirror and frame decoder.
+- Async BotClient with login, heartbeat, reconnect, pending request matching, offline message pull, delivery/read ACK, idempotent private replies, and friend policy checks.
+- FastAPI AgentService with `/health`, AgentService `/chat` API, and Human Review APIs/UI.
+- Six-node LangGraph workflow: `dialogue_policy`, `retrieve_context`, `tool_router`, `generate_reply`, `safety_check`, and `finalize_reply`.
+- Knowledge RAG, Memory RAG, and Authorized Style RAG using Chroma plus mock embeddings for tests.
+- Consent, PII redaction, style sample import, and verbatim leakage guard for authorized style data.
+- Tool Calling framework with schema validation, timeout traces, idempotency keys, and safe memory/context tools.
+- Persona prompt engine, structured LLM reply generation, SafetyGuard, Human Review, final `AgentReplyCommand`, and BotClient command execution.
+- Evaluation suite with JSONL datasets, offline mock eval, gated real workflow eval, metrics, reports, and failure sample analysis.
+- Demo docs, architecture docs, interview notes, and 24 step-by-step tutorials.
 
-`AGENT_SERVICE_URL` and `AGENT_REQUEST_TIMEOUT_SECONDS` configure the Step 08 BotClient adapter. If AgentService is unavailable, times out, returns an HTTP error, or returns a malformed response, the adapter returns `should_send=false` and BotClient does not send a LiteIM message.
+## Project Layout
 
-`AGENT_STATE_DB_PATH` stores AgentService checkpoint and Human Review state. Keep the real SQLite database ignored; only `data/agent_state/.gitignore` is tracked.
+```text
+agent_service/          FastAPI service, LangGraph workflow, RAG, memory, style, safety, tools, eval
+bot_client/             LiteIM protocol client, runtime, message handling, friend policy, AgentService adapter
+scripts/demo/           Offline mock demo
+scripts/runtime/        Real BotClient runner
+scripts/data/           Authorized style data import/OCR helpers
+eval/datasets/          Mock and real-eval JSONL cases
+eval/reports/           Generated mock eval reports
+docs/                   Architecture, demo guide, tutorials, interview notes, process records
+tests/                  Pytest coverage for each step and integration boundary
+```
 
-`CHROMA_PATH`, `KNOWLEDGE_DOCS_PATH`, `RAG_CHUNK_SIZE`, `RAG_CHUNK_OVERLAP`, and `RAG_TOP_K` configure the Step 12 Knowledge RAG pipeline. Keep local Chroma data ignored; only `data/chroma/.gitignore` is tracked. Default tests use `MockEmbeddingClient` and do not call a real embedding API.
+## Configuration
 
-`MEMORY_DB_PATH` and `MEMORY_TOP_K` configure the Step 13 Memory RAG pipeline. Memory records are scoped by `sender_id` as `user_id`; local memory SQLite data stays ignored, and only `data/memory/.gitignore` is tracked.
-
-`data/authorized_style_records/raw/` is reserved for local authorized chat exports and is ignored by Git. Step 14 tracks only safe examples: consent manifest, redacted processed style samples, and import reports under `data/authorized_style_records/`.
-
-`STYLE_TOP_K` configures the Step 15 Authorized Style RAG retrieval limit. Style retrieval uses the `style` collection under `CHROMA_PATH`, derives the target `persona_id` from `sender_id` for current-user style requests, and only injects processed, redacted style examples into workflow context.
-
-Step 16 adds a deterministic Verbatim Leakage Guard after draft generation and before finalization. Direct style-sample copies and PII leaks are blocked, high-overlap drafts are rewritten to a safe fallback, and normal style-similar but non-verbatim replies can pass.
-
-Step 17 adds a safe Tool Calling framework inside AgentService. Built-in tools include `save_memory`, `deactivate_memory`, `get_user_profile`, `summarize_recent_context`, `search_recent_context`, and `liteim_context_tool`. Side-effect tools require an `idempotency_key`, tool failures are returned as structured envelopes, and tools do not send LiteIM messages or access LiteIM MySQL/TCP.
-
-`PERSONA_CONFIG_PATH` points to the Step 18 persona and prompt template config. The default `agent_service/persona/persona.yaml` keeps identity notice, prompt version, style instruction, and safety boundaries out of Python code. `PersonaEngine` injects that identity notice into prompts and records prompt metadata plus `used_context_ids` in workflow state.
-
-Step 19 uses the configured `LLM_PROVIDER` and `LLM_MODEL` in `generate_reply`. `mock` mode stays offline and deterministic for unit tests. `deepseek` / OpenAI-compatible mode uses `OpenAILLMClient`; model errors, invalid structured output, or repeated failures become a fallback draft and are recorded in generation trace.
-
-Step 20 adds a deterministic `SafetyGuard` after draft generation. It blocks missing AI identity notice, impersonation attempts, unauthorized third-person style mimicry, privacy leakage, direct style-sample copies, and unsafe requests. Money, legal, medical, account/password, and real-world-commitment messages enter Human Review instead of being sent directly; review reject returns no-send, and review edit/approve resumes with the edited text.
-
-Step 21 finalizes every workflow result into an idempotent `AgentReplyCommand`. Send commands include `conversation_type`, `conversation_id`, `client_message_id`, stable `dedup_key`, and `trace_summary`; no-send commands keep the same source/dedup metadata with explicit reasons such as `safety_block`, `human_review_required`, or `human_review_pending`. AgentService still does not send LiteIM packets directly.
-
-Step 22 lets BotClient execute `AgentReplyCommand` over LiteIM. `AgentServiceMessageProcessor` passes command text, receiver, `client_message_id`, and `dedup_key` into `BotMessageHandler`; the handler sends `PrivateMessageRequest`, records `sent` or `failed` agent reply trace events in local state, skips duplicate sends when a sent `dedup_key` already exists, ignores no-op commands, and still ignores pushes sent by the bot itself.
-
-Step 23 adds the local evaluation suite under `agent_service/eval/` and checked-in mock datasets under `eval/datasets/`. The default mock eval does not require API keys and writes JSON plus Markdown reports to `eval/reports/`; real mode refuses to run without `OPENAI_API_KEY`.
-
-Step 24 finalizes the first-version handoff. See `docs/architecture.md` for architecture diagrams and `docs/demo/README.md` for the offline mock demo, optional real LiteIM smoke route, transcript output, screenshot asset, and eval report entrypoints.
-
-`BOT_STATE_PATH` stores local processed-message IDs, delivery/read receipt traces, synced friends, friend policy traces, and group-message trace records. Keep the real runtime state ignored; only `data/bot_state/.gitignore` is tracked.
-
-Unit tests still use `MockLLMClient` and do not call DeepSeek.
-
-## Local Eval
+Copy the example file and keep real secrets local:
 
 ```bash
-conda run -n agent python -m agent_service.eval --mode mock --datasets-dir eval/datasets --output-dir eval/reports
+cp .env.example .env
 ```
 
-The checked-in mock report is `eval/reports/mock_eval_report.md`, with the machine-readable payload in `eval/reports/mock_eval_report.json`. That report is generated from the checked-in mock cases only; it is not a production benchmark claim.
+Important runtime variables:
 
-Real mode is intentionally gated by `OPENAI_API_KEY`:
+- `LLM_PROVIDER=mock|deepseek`
+- `LLM_MODEL=deepseek-v4-flash`
+- `OPENAI_API_KEY=...`
+- `OPENAI_BASE_URL=https://api.deepseek.com`
+- `AGENT_SERVICE_URL=http://127.0.0.1:8088`
+- `LITEIM_HOST=127.0.0.1`
+- `LITEIM_PORT=9000`
+- `BOT_USERNAME=persona_bot`
+- `BOT_PASSWORD=...`
+- `BOT_STATE_PATH=data/state/bot_state/state.json`
+- `AGENT_STATE_DB_PATH=data/state/agent_state/state.sqlite3`
+- `MEMORY_DB_PATH=data/state/memory/memory.sqlite3`
+- `CHROMA_PATH=data/vector/chroma`
+- `STYLE_SAMPLES_PATH=data/authorized_style_records/processed/style_samples.local.jsonl`
+- `REAL_EVAL_CONFIRM=0|1`
+
+Real `.env`, runtime databases, local Chroma indexes, raw authorized chat exports, processed local style samples, and runtime logs are ignored by Git.
+
+## Personalized Bot
+
+To configure a personalized chatbot, keep private data in local ignored files and point `.env` at those files:
+
+- Create a normal LiteIM bot account, then set `BOT_USERNAME`, `BOT_PASSWORD`, and `BOT_NICKNAME`.
+- Write a local persona config such as `data/authorized_style_records/processed/demo_persona_config.local.yaml`, then set `PERSONA_CONFIG_PATH`.
+- Put stable project facts or public knowledge notes under `data/knowledge_docs/` for Knowledge RAG.
+- Import only consented and redacted style samples into `STYLE_SAMPLES_PATH`; keep raw chat exports under ignored `data/authorized_style_records/raw/`.
+- Set `STYLE_PERSONA_ID`, `STYLE_ON_SMALLTALK=true`, and `STYLE_ON_PRIVATE_CHAT=true` when ordinary private chats should use the configured style.
+- Keep `AGENT_STATE_DB_PATH`, `MEMORY_DB_PATH`, `BOT_STATE_PATH`, and `CHROMA_PATH` under ignored runtime/state directories.
+
+The public repository should contain only placeholders, examples, and sanitized docs. Real names, API keys, chat exports, local memories, and generated vector indexes stay local.
+
+## Quick Start
+
+Install dependencies in the existing local conda environment:
 
 ```bash
-conda run -n agent python -m agent_service.eval --mode real --datasets-dir eval/datasets --output-dir eval/reports
+conda run --no-capture-output -n agent python -m pip install -e ".[dev,openai]"
 ```
 
-## Local Demo
+Run the offline mock demo:
 
 ```bash
-conda run -n agent python scripts/run_mock_demo.py --output-dir docs/demo
+conda run --no-capture-output -n agent python scripts/demo/run_mock_demo.py --output-dir docs/demo
 ```
 
-The mock demo writes `docs/demo/mock_demo_transcript.md` and `docs/demo/mock_demo_transcript.json`. It covers Echo mode, Knowledge RAG, Memory RAG, Authorized Style RAG, Tool Calling, Safety block, Human Review, and Eval report without using real API keys or private data.
-
-## Local Test
+Start AgentService in mock mode:
 
 ```bash
-conda run -n agent python -m pytest
-conda run -n agent ruff check .
-conda run -n agent mypy agent_service bot_client
+conda run --no-capture-output -n agent env \
+  LLM_PROVIDER=mock \
+  LLM_MODEL=mock \
+  uvicorn agent_service.main:app --host 127.0.0.1 --port 8088
 ```
 
-The cross-language protocol tests compile a small C++ helper into pytest's temporary directory and link it against `/home/yolo/jianli/LiteIM` protocol sources. They do not start the LiteIM server.
+Run the BotClient against LiteIM:
 
-The Step 04 BotClient tests use an in-process asyncio mock LiteIM server. They do not require MySQL, Redis, or a running LiteIM server.
+```bash
+conda run --no-capture-output -n agent python scripts/runtime/run_bot_client.py \
+  --mode agent \
+  --username persona_bot \
+  --password demo_password \
+  --liteim-host 127.0.0.1 \
+  --liteim-port 9000 \
+  --agent-service-url http://127.0.0.1:8088
+```
 
-The Step 05 reliability tests use protocol packets and fake BotClient objects to verify ACK/order/dedup behavior without calling AgentService.
+For a protocol-only smoke path that does not call AgentService:
 
-The Step 06 friend policy tests use protocol packets and fake BotClient objects to verify allowlist accept/reject behavior, friend-list sync, accepted-push handling, and non-friend private-message blocking.
+```bash
+conda run --no-capture-output -n agent python scripts/runtime/run_bot_client.py \
+  --mode echo \
+  --username persona_bot \
+  --password demo_password
+```
 
-The Step 07 Echo runtime tests verify startup sync order, offline echo-once behavior, live private echo with ACK/read/reply, restart deduplication, echo disabled behavior, and group push record-without-reply behavior.
+Do not log in to the same bot account from the Qt client while Python BotClient is running.
 
-The Step 08 chat API adapter tests verify `/chat` mock replies, structured error envelopes, LiteIM message to `ChatRequest` mapping, AgentApiClient success/fail-closed behavior, and `should_send=false` no-send behavior.
+## Evaluation
 
-The Step 09 LangGraph workflow tests verify full six-node graph execution, no-reply early finalize, safety-block no-send behavior, node trace recording, and `/chat` default graph integration.
+Run the default offline eval:
 
-The Step 10 DialoguePolicy tests verify the structured decision schema, all supported intents, private-chat default reply, group-chat no-op, mock structured-output retry, fallback rules, workflow routing, and `/chat` group no-op behavior.
+```bash
+conda run --no-capture-output -n agent python -m agent_service.eval \
+  --mode mock \
+  --output-dir eval/reports
+```
 
-The Step 11 Human Review tests verify thread ID construction, high-risk pending review and checkpoint persistence, approve/edit/resume, reject/resume no-op, and repeated resume no-send behavior.
+Real workflow eval is gated to avoid accidental paid model calls:
 
-The Step 12 Knowledge RAG tests verify document loading, required metadata, Chroma persistence, top-k retrieval, active metadata filtering, empty collection behavior, and workflow context/trace integration.
+```bash
+conda run --no-capture-output -n agent env \
+  REAL_EVAL_CONFIRM=1 \
+  OPENAI_API_KEY="$OPENAI_API_KEY" \
+  python -m agent_service.eval --mode real --max-cases 20 --concurrency 2 --resume
+```
 
-The Step 13 Memory RAG tests verify memory save/list/deactivate fields, user-scoped retrieval, inactive filtering, `/remember`, `/forget`, and memory query context injection.
+## Tests
 
-The Step 14 governance tests verify no-consent rejection, forbidden usage rejection, PII redaction before processed sample writing, revoked-consent inactive samples, import report generation, and the safe authorized-style data layout.
+```bash
+conda run --no-capture-output -n agent python -m pytest -q
+conda run --no-capture-output -n agent python -m ruff check .
+conda run --no-capture-output -n agent python -m mypy agent_service bot_client
+```
 
-The Step 15 Authorized Style RAG tests verify `persona_id` isolation, `consent_id` filtering, `active=false` exclusion, deterministic style feature stats, insufficient-sample fallback, and workflow style trace/context injection.
+## Data Safety
 
-The Step 16 Verbatim Leakage Guard tests verify direct style-sample copy blocking, high-overlap rewrite, PII leak blocking, style source-id leak blocking, normal non-verbatim pass behavior, and workflow safety blocking from retrieved style context.
+Authorized Style RAG is not ordinary few-shot prompting. Raw chat exports stay local and ignored. Only consent metadata, redacted processed examples, and safe demo artifacts belong in Git. The import pipeline validates consent, applies PII redaction, records import reports, and keeps revocation/active metadata for retrieval filtering.
 
-The Step 17 Tool Calling tests verify registry schema validation, timeout trace recording, required built-in tool registration, `save_memory` idempotency, structured tool failure envelopes, and workflow tool-result state injection.
+## Docs
 
-The Step 18 PersonaEngine tests verify default `persona.yaml` loading, required identity notice validation, context-aware prompt assembly, style fallback behavior, prompt metadata, and prompt version workflow trace recording.
-
-The Step 19 GenerateReply tests verify structured `ReplyDraft` generation, retry on non-structured output, fallback after repeated failures, token/latency trace, context id attribution, and workflow integration.
-
-The Step 20 SafetyGuard tests verify AI identity notice enforcement, impersonation blocking, unauthorized style mimicry blocking, privacy leak blocking, direct style-sample copy blocking, high-risk Human Review routing, reject no-send behavior, and review edit resume behavior.
-
-The Step 21 FinalizeReply tests verify idempotent send commands, safety-block no-op commands, Human Review no-send commands, stable dedup keys, trace summaries, and checkpointed final commands.
-
-The Step 22 AgentReplyCommand execution tests verify BotClient LiteIM sends, sent trace recording, sent-dedup retry protection, AgentService no-op behavior, failed send trace recording, processed-message marking after failed sends, and self-push suppression.
-
-The Step 23 Evaluation tests verify default dataset loading, metric calculation, mock JSON/Markdown report writing, A/B variant reporting, and real-mode API key gating.
-
-The Step 24 Final Demo tests verify the offline mock demo transcript, final architecture/demo docs, and the complete set of 24 tutorial files.
+- [Architecture](docs/architecture.md)
+- [Demo guide](docs/demo/README.md)
+- [Tutorials](docs/tutorials/)
+- [Interview notes](docs/interview/persona_agent_interview_notes.md)

@@ -39,6 +39,7 @@ class VerbatimLeakageGuard:
         self,
         *,
         ngram_size: int = 4,
+        min_source_tokens: int = 6,
         rewrite_ngram_overlap_threshold: float = 0.45,
         rewrite_lcs_ratio_threshold: float = 0.60,
         block_lcs_ratio_threshold: float = 0.90,
@@ -46,7 +47,10 @@ class VerbatimLeakageGuard:
     ) -> None:
         if ngram_size <= 0:
             raise ValueError("ngram_size must be positive")
+        if min_source_tokens <= 0:
+            raise ValueError("min_source_tokens must be positive")
         self._ngram_size = ngram_size
+        self._min_source_tokens = min_source_tokens
         self._rewrite_ngram_overlap_threshold = rewrite_ngram_overlap_threshold
         self._rewrite_lcs_ratio_threshold = rewrite_lcs_ratio_threshold
         self._block_lcs_ratio_threshold = block_lcs_ratio_threshold
@@ -107,6 +111,8 @@ class VerbatimLeakageGuard:
 
         for source in sources:
             source_tokens = _tokens(source.text)
+            if len(source_tokens) < self._min_source_tokens:
+                continue
             source_norm = "".join(source_tokens)
             source_ngrams = _ngrams(source_tokens, self._ngram_size)
             ngram_overlap = _overlap_ratio(candidate_ngrams, source_ngrams)

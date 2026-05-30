@@ -4,7 +4,21 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, Field
 
+# 定义 BotClient 和 AgentService 之间的结构化 API 合同。
 
+
+# 表示一条“最近上下文消息”。
+class ChatContextMessage(BaseModel):
+    message_id: int = Field(ge=1)
+    conversation_type: int = Field(ge=1)
+    conversation_id: int = Field(ge=1)
+    sender_id: int = Field(ge=1)
+    receiver_id: int = Field(ge=1)
+    text: str
+    timestamp_ms: int = Field(ge=0)
+    client_message_id: str | None = None
+
+# AgentService `/chat` 的请求体。
 class ChatRequest(BaseModel):
     run_id: str = Field(min_length=1)
     conversation_type: int = Field(ge=1)
@@ -15,6 +29,7 @@ class ChatRequest(BaseModel):
     text: str
     timestamp_ms: int = Field(ge=0)
     client_message_id: str | None = None
+    recent_context: list[ChatContextMessage] = Field(default_factory=list)
 
 
 class AgentReplyCommand(BaseModel):

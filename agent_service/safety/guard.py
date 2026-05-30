@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from agent_service.governance.pii_redactor import PiiRedactor
 from agent_service.llm.base import LLMMessage
 from agent_service.safety.verbatim_guard import (
+    SAFE_REWRITE_TEXT,
     LeakageMetrics,
     LeakageSource,
     VerbatimLeakageGuard,
@@ -104,6 +105,21 @@ class SafetyGuard:
         if style_sources:
             leakage = self._leakage_guard.assess(draft, style_sources)
             if leakage.action == "block":
+                if leakage.reason == "direct_verbatim_copy":
+                    trace = SafetyTrace(
+                        identity_notice_present=identity_notice_present,
+                        risks=[leakage.reason],
+                        high_risk_categories=high_risk_categories,
+                        style_source_ids=leakage.metrics.source_ids,
+                    )
+                    return SafetyAssessment(
+                        blocked=False,
+                        needs_human_review=bool(high_risk_categories),
+                        reason=_review_reason(high_risk_categories) or leakage.reason,
+                        safe_text=SAFE_REWRITE_TEXT,
+                        metrics=leakage.metrics,
+                        trace=trace,
+                    )
                 return _blocked(
                     leakage.reason,
                     identity_notice_present=identity_notice_present,
@@ -180,7 +196,16 @@ def _has_ai_identity_notice(prompt_messages: Sequence[LLMMessage]) -> bool:
     joined = "\n".join(message.content for message in prompt_messages).casefold()
     if "ai" not in joined or ("agent" not in joined and "assistant" not in joined):
         return False
-    return "not a real person" in joined or "不能冒充" in joined or "不是真人" in joined
+    return any(
+        marker in joined
+        for marker in (
+            "not a real person",
+            "must not hide that it is an ai agent",
+            "identity disclosure",
+            "不能冒充",
+            "不是真人",
+        )
+    )
 
 
 def _has_impersonation_attempt(request_text: str, draft: str) -> bool:

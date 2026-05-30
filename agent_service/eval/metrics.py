@@ -10,6 +10,7 @@ from agent_service.eval.cases import (
     EvalDatasets,
     EvalVariant,
     IntegrationEvalCase,
+    RealEvalCaseResult,
     RetrievalEvalCase,
     SafetyEvalCase,
     StyleEvalCase,
@@ -30,6 +31,7 @@ class EvalSampleSize(BaseModel):
     style: int = Field(ge=0)
     safety: int = Field(ge=0)
     integration: int = Field(ge=0)
+    real: int = Field(default=0, ge=0)
     total: int = Field(ge=0)
 
 
@@ -60,6 +62,7 @@ class EvalReport(BaseModel):
     sample_size: EvalSampleSize
     metrics: EvalMetrics
     ab_variants: dict[str, EvalVariantReport]
+    real_case_results: list[RealEvalCaseResult] = Field(default_factory=list)
 
 
 def evaluate_datasets(
@@ -108,13 +111,15 @@ def _sample_size(datasets: EvalDatasets) -> EvalSampleSize:
     style = len(datasets.style_cases)
     safety = len(datasets.safety_cases)
     integration = len(datasets.integration_cases)
+    real = len(datasets.real_cases)
     return EvalSampleSize(
         rag=rag,
         memory=memory,
         style=style,
         safety=safety,
         integration=integration,
-        total=rag + memory + style + safety + integration,
+        real=real,
+        total=rag + memory + style + safety + integration + real,
     )
 
 

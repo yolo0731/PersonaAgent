@@ -6,8 +6,7 @@ from collections.abc import Awaitable, Callable
 import pytest
 from fastapi.testclient import TestClient
 
-from bot_client.frame_decoder import FrameDecoder
-from bot_client.liteim_protocol import (
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     PacketHeader,
@@ -16,6 +15,7 @@ from bot_client.liteim_protocol import (
     append_uint64,
     encode_packet,
 )
+from bot_client.protocol.frame_decoder import FrameDecoder
 
 
 def _body(*fields: tuple[TlvType, str | int]) -> bytes:
@@ -134,7 +134,7 @@ async def mock_server(
 
 
 def test_bot_client_settings_have_safe_defaults_without_env_file() -> None:
-    from bot_client.config import BotClientSettings
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(_env_file=None)
 
@@ -176,8 +176,8 @@ async def _auth_and_heartbeat_handler(
 async def test_bot_client_login_and_pending_response_match(
     mock_server: MockLiteIMServer,
 ) -> None:
-    from bot_client.bot_client import BotClient
-    from bot_client.config import BotClientSettings
+    from bot_client.connection.client import BotClient
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(
         _env_file=None,
@@ -236,8 +236,8 @@ async def _login_only_handler(
 async def test_pending_request_timeout_clears_pending(
     mock_server: MockLiteIMServer,
 ) -> None:
-    from bot_client.bot_client import BotClient, BotClientTimeoutError
-    from bot_client.config import BotClientSettings
+    from bot_client.connection.client import BotClient, BotClientTimeoutError
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(
         _env_file=None,
@@ -263,8 +263,8 @@ async def test_pending_request_timeout_clears_pending(
 async def test_heartbeat_loop_sends_request_after_login(
     mock_server: MockLiteIMServer,
 ) -> None:
-    from bot_client.bot_client import BotClient
-    from bot_client.config import BotClientSettings
+    from bot_client.connection.client import BotClient
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(
         _env_file=None,
@@ -318,8 +318,8 @@ async def _close_after_first_login_handler(
 async def test_supervisor_reconnects_after_disconnect_and_logs_in_again(
     mock_server: MockLiteIMServer,
 ) -> None:
-    from bot_client.config import BotClientSettings
-    from bot_client.supervisor import BotClientSupervisor
+    from bot_client.connection.supervisor import BotClientSupervisor
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(
         _env_file=None,
@@ -346,8 +346,8 @@ async def test_supervisor_connection_failure_does_not_affect_agent_service(
     unused_tcp_port: int,
 ) -> None:
     from agent_service.main import create_app
-    from bot_client.config import BotClientSettings
-    from bot_client.supervisor import BotClientSupervisor
+    from bot_client.connection.supervisor import BotClientSupervisor
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(
         _env_file=None,

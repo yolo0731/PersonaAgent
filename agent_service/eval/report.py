@@ -47,6 +47,7 @@ def _markdown(report: EvalReport, *, json_name: str) -> str:
         f"| Style | {report.sample_size.style} |",
         f"| Safety | {report.sample_size.safety} |",
         f"| LiteIM Integration | {report.sample_size.integration} |",
+        f"| Real workflow cases | {report.sample_size.real} |",
         f"| Total | {report.sample_size.total} |",
         "",
         "## Metrics",
@@ -80,9 +81,42 @@ def _markdown(report: EvalReport, *, json_name: str) -> str:
             f"{variant.p95_latency_ms:.3f} ms | ${variant.token_cost_per_reply:.8f} | "
             f"{_percent(variant.liteim_integration_success_rate)} |"
         )
+    lines.extend(_failure_analysis(report))
     lines.append("")
     return "\n".join(lines)
 
 
 def _percent(value: float) -> str:
     return f"{value * 100:.2f}%"
+
+
+def _failure_analysis(report: EvalReport) -> list[str]:
+    if not report.real_case_results:
+        return []
+    failures = [result for result in report.real_case_results if not result.passed]
+    by_category: dict[str, int] = {}
+    for result in failures:
+        by_category[result.category] = by_category.get(result.category, 0) + 1
+    lines = [
+        "",
+        "## Failure Sample Analysis",
+        "",
+        "| Category | Failures |",
+        "| --- | ---: |",
+    ]
+    for category, count in sorted(by_category.items()):
+        lines.append(f"| {category} | {count} |")
+    lines.extend(["", "| Case | Reply | Expected | Trace |", "| --- | --- | --- | --- |"])
+    for result in failures[:20]:
+        lines.append(
+            "| "
+            f"{result.case_id} | "
+            f"{_cell(result.actual_reply)} | "
+            f"{_cell(result.expected_behavior)} | "
+            f"{_cell('; '.join(result.trace_summary[:4]))} |"
+        )
+    return lines
+
+
+def _cell(value: str) -> str:
+    return value.replace("\n", " ").replace("|", "\\|")

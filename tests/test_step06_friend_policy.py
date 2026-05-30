@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bot_client.liteim_protocol import (
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     PacketHeader,
@@ -109,8 +109,8 @@ class FakeReliabilityClient:
 
 
 def test_friend_protocol_parser_and_builders_match_liteim_fields() -> None:
-    from bot_client.protocol_builders import make_friend_action_body
-    from bot_client.protocol_parser import (
+    from bot_client.protocol.builders import make_friend_action_body
+    from bot_client.protocol.parsers import (
         FRIEND_REQUEST_ACCEPTED,
         FRIEND_REQUEST_PENDING,
         parse_friend_action,
@@ -174,9 +174,9 @@ def test_friend_protocol_parser_and_builders_match_liteim_fields() -> None:
 
 
 def test_friend_policy_settings_parse_allowlists() -> None:
-    from bot_client.config import BotClientSettings
-    from bot_client.friend_policy import FriendAccessPolicy
-    from bot_client.protocol_parser import FriendProfile
+    from bot_client.access.friend_policy import FriendAccessPolicy
+    from bot_client.protocol.parsers import FriendProfile
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(
         _env_file=None,
@@ -199,9 +199,9 @@ def test_friend_policy_settings_parse_allowlists() -> None:
 async def test_friend_policy_sync_accepts_allowlisted_and_rejects_non_allowlisted(
     tmp_path: Path,
 ) -> None:
-    from bot_client.friend_policy import FriendAccessPolicy, FriendPolicyHandler
-    from bot_client.message_state import JsonMessageState
-    from bot_client.protocol_parser import (
+    from bot_client.access.friend_policy import FriendAccessPolicy, FriendPolicyHandler
+    from bot_client.messages.state import JsonMessageState
+    from bot_client.protocol.parsers import (
         FRIEND_REQUEST_PENDING,
         FriendProfile,
         FriendRequest,
@@ -248,9 +248,9 @@ async def test_friend_policy_sync_accepts_allowlisted_and_rejects_non_allowliste
 async def test_friend_policy_can_leave_non_allowlisted_requests_pending(
     tmp_path: Path,
 ) -> None:
-    from bot_client.friend_policy import FriendAccessPolicy, FriendPolicyHandler
-    from bot_client.message_state import JsonMessageState
-    from bot_client.protocol_parser import (
+    from bot_client.access.friend_policy import FriendAccessPolicy, FriendPolicyHandler
+    from bot_client.messages.state import JsonMessageState
+    from bot_client.protocol.parsers import (
         FRIEND_REQUEST_PENDING,
         FriendProfile,
         FriendRequest,
@@ -282,9 +282,9 @@ async def test_friend_policy_can_leave_non_allowlisted_requests_pending(
 
 
 async def test_friend_accepted_push_updates_friend_state(tmp_path: Path) -> None:
-    from bot_client.friend_policy import FriendAccessPolicy, FriendPolicyHandler
-    from bot_client.message_state import JsonMessageState
-    from bot_client.protocol_parser import FRIEND_REQUEST_ACCEPTED
+    from bot_client.access.friend_policy import FriendAccessPolicy, FriendPolicyHandler
+    from bot_client.messages.state import JsonMessageState
+    from bot_client.protocol.parsers import FRIEND_REQUEST_ACCEPTED
 
     state = JsonMessageState(tmp_path / "state.json")
     handler = FriendPolicyHandler(
@@ -313,9 +313,9 @@ async def test_friend_accepted_push_updates_friend_state(tmp_path: Path) -> None
 async def test_message_handler_blocks_private_messages_from_non_friends(
     tmp_path: Path,
 ) -> None:
-    from bot_client.message_handler import BotMessageHandler, MessageProcessingResult
-    from bot_client.message_state import JsonMessageState
-    from bot_client.protocol_parser import FriendProfile
+    from bot_client.messages.handler import BotMessageHandler, MessageProcessingResult
+    from bot_client.messages.state import JsonMessageState
+    from bot_client.protocol.parsers import FriendProfile
 
     state = JsonMessageState(tmp_path / "state.json")
     state.replace_friends([FriendProfile(1002, "alice", "Alice", True)])
@@ -348,9 +348,9 @@ async def test_message_handler_blocks_private_messages_from_non_friends(
 
 
 async def test_bot_client_friend_methods_send_expected_requests() -> None:
-    from bot_client.bot_client import BotClient
-    from bot_client.config import BotClientSettings
-    from bot_client.protocol_parser import FRIEND_REQUEST_ACCEPTED, FRIEND_REQUEST_REJECTED
+    from bot_client.connection.client import BotClient
+    from bot_client.protocol.parsers import FRIEND_REQUEST_ACCEPTED, FRIEND_REQUEST_REJECTED
+    from bot_client.runtime.config import BotClientSettings
 
     settings = BotClientSettings(_env_file=None)
     client = BotClient(settings)

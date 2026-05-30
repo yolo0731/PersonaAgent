@@ -10,6 +10,10 @@ def parse_remember_content(text: str) -> str | None:
     if stripped.startswith("记住"):
         content = stripped[len("记住") :].strip(" ：:")
         return content or None
+    for suffix in ("，记住", ",记住", " 记住", "记住"):
+        if stripped.endswith(suffix) and len(stripped) > len(suffix):
+            content = stripped[: -len(suffix)].strip(" ，,:：")
+            return content or None
     return None
 
 

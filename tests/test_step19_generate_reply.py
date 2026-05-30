@@ -168,7 +168,7 @@ def test_reply_generator_retries_non_structured_output() -> None:
 
 
 def test_reply_generator_falls_back_after_repeated_failures() -> None:
-    from agent_service.generation import LLMReplyGenerator
+    from agent_service.generation import GENERATION_FALLBACK_TEXT, LLMReplyGenerator
 
     request, prompt = _prompt_with_context()
     client = SequencedLLMClient([RuntimeError("bad output"), RuntimeError("still bad")])
@@ -178,10 +178,30 @@ def test_reply_generator_falls_back_after_repeated_failures() -> None:
         prompt=prompt,
     )
 
-    assert result.draft.reply_text == "mock reply: LiteIM 项目是什么？"
+    assert result.draft.reply_text == GENERATION_FALLBACK_TEXT
+    assert not result.draft.reply_text.startswith("mock reply:")
     assert result.draft.fallback_used is True
     assert result.trace.fallback_used is True
     assert result.trace.error_message == "still bad"
+    assert result.trace.attempts == 2
+
+
+def test_reply_generator_falls_back_after_timeout_errors() -> None:
+    from agent_service.generation import GENERATION_FALLBACK_TEXT, LLMReplyGenerator
+
+    request, prompt = _prompt_with_context()
+    client = SequencedLLMClient([TimeoutError("timed out"), TimeoutError("still timed out")])
+
+    result = LLMReplyGenerator(llm_client=client, max_retries=2).generate(
+        request=request,
+        prompt=prompt,
+    )
+
+    assert result.draft.reply_text == GENERATION_FALLBACK_TEXT
+    assert not result.draft.reply_text.startswith("mock reply:")
+    assert result.draft.fallback_used is True
+    assert result.trace.fallback_used is True
+    assert result.trace.error_message == "still timed out"
     assert result.trace.attempts == 2
 
 

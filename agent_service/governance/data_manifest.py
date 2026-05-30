@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from agent_service.governance.consent import ConsentManifest, ConsentRecord
 from agent_service.governance.pii_redactor import PiiRedactor
+from agent_service.style.filters import is_learnable_style_text
 
 
 class RawStyleRecord(BaseModel):
@@ -110,6 +111,15 @@ class StyleDataImporter:
 
             assert consent is not None
             redaction = self._redactor.redact(record.text)
+            if not is_learnable_style_text(redaction.text):
+                rejections.append(
+                    ImportRejection(
+                        record_id=record.record_id,
+                        consent_id=record.consent_id,
+                        reason="unlearnable_text",
+                    )
+                )
+                continue
             redacted_count += int(redaction.redacted)
             active = consent.active
             inactive_count += int(not active)

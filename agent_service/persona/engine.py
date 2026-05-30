@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from agent_service.llm.base import LLMMessage
 from agent_service.rag.documents import RetrievalTrace
 from agent_service.schemas import ChatRequest
+from agent_service.style.filters import is_prompt_style_example
 
 
 class PersonaConfigError(ValueError):
@@ -55,21 +56,30 @@ class PersonaPrompt(BaseModel):
 
 
 class PersonaEngine:
-    def __init__(self, config: PersonaConfig) -> None:
+    def __init__(self, config: PersonaConfig, *, profile_text: str = "") -> None:
         self.config = config
+        self.profile_text = profile_text.strip()
 
     @classmethod
     def from_default(cls) -> PersonaEngine:
         return cls.from_file(Path(__file__).with_name("persona.yaml"))
 
     @classmethod
-    def from_file(cls, path: str | Path) -> PersonaEngine:
+    def from_file(
+        cls,
+        path: str | Path,
+        *,
+        profile_path: str | Path | None = None,
+    ) -> PersonaEngine:
         config_path = Path(path)
         try:
             raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
             if not isinstance(raw_config, dict):
                 raise PersonaConfigError("persona.yaml must contain a mapping")
-            return cls(PersonaConfig.model_validate(raw_config))
+            return cls(
+                PersonaConfig.model_validate(raw_config),
+                profile_text=_load_profile_text(profile_path),
+            )
         except ValidationError as exc:
             raise PersonaConfigError(str(exc)) from exc
         except yaml.YAMLError as exc:
@@ -85,7 +95,7 @@ class PersonaEngine:
         retrieval_trace: Sequence[RetrievalTrace],
         tool_results: Sequence[str] = (),
     ) -> PersonaPrompt:
-        context = _PromptContext.from_retrieved_context(retrieved_context, tool_results)
+        context = _PromptContext.from_retrieved_context(request, retrieved_context, tool_results)
         used_context = _used_context_ids(retrieval_trace)
         context_block = context.to_prompt_block(self.config.style_instruction)
         values = {
@@ -94,6 +104,7 @@ class PersonaEngine:
             "prompt_version": self.config.prompt_version,
             "style_instruction": self.config.style_instruction,
             "safety_boundaries": _bullet_list(self.config.safety_boundaries),
+            "persona_profile": self.profile_text or "No local persona profile is configured.",
             "context_block": context_block,
             "user_text": request.text,
         }
@@ -125,19 +136,30 @@ class PersonaEngine:
 
 
 class _PromptContext(BaseModel):
+    recent_context: list[str] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
     memory: list[str] = Field(default_factory=list)
     style_summaries: list[str] = Field(default_factory=list)
+    style_examples: list[str] = Field(default_factory=list)
+    style_pairs: list[str] = Field(default_factory=list)
     style_fallback_used: bool = False
     tools: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_retrieved_context(
         cls,
+        request: ChatRequest,
         retrieved_context: Sequence[str],
         tool_results: Sequence[str],
     ) -> _PromptContext:
-        context = cls(tools=list(tool_results))
+        context = cls(
+            recent_context=[
+                f"{item.sender_id}->{item.receiver_id}: {item.text}"
+                for item in request.recent_context[-12:]
+                if item.text.strip()
+            ],
+            tools=list(tool_results),
+        )
         for item in retrieved_context:
             if item.startswith("knowledge:"):
                 context.knowledge.append(_strip_prefix(item, "knowledge:"))
@@ -150,30 +172,46 @@ class _PromptContext(BaseModel):
             elif item.startswith("style_fallback:"):
                 context.style_fallback_used = True
             elif item.startswith("style_example:"):
-                continue
+                example = _style_payload_text(item, prefix="style_example:")
+                if example and is_prompt_style_example(example):
+                    context.style_examples.append(example)
+            elif item.startswith("style_pair:"):
+                pair = _style_payload_text(item, prefix="style_pair:")
+                if pair:
+                    context.style_pairs.append(pair)
             elif item.strip():
                 context.knowledge.append(item.strip())
-        if not context.style_summaries:
+        if not context.style_summaries and not context.style_examples and not context.style_pairs:
             context.style_fallback_used = True
         return context
 
     def to_prompt_block(self, style_instruction: str) -> str:
         sections = [
+            _section("Recent conversation context", self.recent_context),
             _section("Knowledge context", self.knowledge),
             _section("Memory context", self.memory),
             _section("Style guidance", self._style_lines(style_instruction)),
+            _section("Authorized style examples", self.style_examples[:5]),
+            _section("Relevant dialogue pairs", self.style_pairs[:3]),
         ]
         if self.tools:
             sections.append(_section("Tool results", self.tools))
         return "\n\n".join(sections)
 
     def _style_lines(self, style_instruction: str) -> list[str]:
-        if self.style_fallback_used:
+        if self.style_fallback_used and not self.style_examples and not self.style_pairs:
             return [
                 "No authorized style samples are available.",
                 style_instruction,
             ]
-        return [*self.style_summaries, style_instruction]
+        lines: list[str] = []
+        if self.style_fallback_used:
+            lines.append(
+                "Style summary unavailable; rely only on authorized examples and persona profile."
+            )
+        lines.extend(self.style_summaries)
+        lines.append(style_instruction)
+        return lines
 
 
 class _UsedContextIds(BaseModel):
@@ -187,6 +225,14 @@ def _strip_prefix(value: str, prefix: str) -> str:
     return value[len(prefix) :].strip()
 
 
+def _style_payload_text(value: str, *, prefix: str) -> str:
+    payload = _strip_prefix(value, prefix)
+    _source_id, separator, text = payload.partition(":")
+    if separator:
+        return text.strip()
+    return payload.strip()
+
+
 def _section(title: str, lines: Sequence[str]) -> str:
     if not lines:
         return f"{title}:\n- none"
@@ -195,6 +241,15 @@ def _section(title: str, lines: Sequence[str]) -> str:
 
 def _bullet_list(lines: Sequence[str]) -> str:
     return "\n".join(f"- {line}" for line in lines if line.strip())
+
+
+def _load_profile_text(profile_path: str | Path | None) -> str:
+    if profile_path is None:
+        return ""
+    path = Path(profile_path)
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
 
 
 def _used_context_ids(retrieval_trace: Sequence[RetrievalTrace]) -> _UsedContextIds:

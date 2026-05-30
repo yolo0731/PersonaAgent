@@ -2,8 +2,7 @@ import struct
 
 import pytest
 
-from bot_client.frame_decoder import FrameDecoder
-from bot_client.liteim_protocol import (
+from bot_client.protocol.codec import (
     MAX_PACKET_BODY_LENGTH,
     PACKET_FLAGS_NONE,
     PACKET_HEADER_SIZE,
@@ -30,6 +29,7 @@ from bot_client.liteim_protocol import (
     parse_tlv_map,
     tlv_type_name,
 )
+from bot_client.protocol.frame_decoder import FrameDecoder
 
 
 def _packet(

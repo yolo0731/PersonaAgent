@@ -128,7 +128,20 @@ def test_style_similar_but_non_verbatim_reply_passes() -> None:
     assert assessment.metrics.pii_leak_count == 0
 
 
-def test_workflow_blocks_draft_that_repeats_retrieved_style_sample(tmp_path: Path) -> None:
+def test_short_common_style_phrases_do_not_trigger_verbatim_rewrite() -> None:
+    from agent_service.safety.verbatim_guard import LeakageSource, VerbatimLeakageGuard
+
+    assessment = VerbatimLeakageGuard().assess(
+        "记得，1月1日。",
+        [LeakageSource(source_id="style-short", text="记得")],
+    )
+
+    assert assessment.action == "pass"
+    assert assessment.safe_text == "记得，1月1日。"
+    assert assessment.metrics.source_ids == []
+
+
+def test_workflow_rewrites_draft_that_repeats_retrieved_style_sample(tmp_path: Path) -> None:
     from agent_service.schemas import ChatRequest
     from agent_service.workflow import run_agent_workflow
 
@@ -142,8 +155,9 @@ def test_workflow_blocks_draft_that_repeats_retrieved_style_sample(tmp_path: Pat
     )
 
     assert state["decision"].need_style is True
-    assert state["safety_result"].blocked is True
+    assert state["safety_result"].blocked is False
     assert state["safety_result"].reason == "direct_verbatim_copy"
-    assert state["final_command"].should_send is False
-    assert state["final_command"].reason == "safety_block"
-    assert any(event.action == "blocked:direct_verbatim_copy" for event in state["trace"])
+    assert state["final_command"].should_send is True
+    assert state["final_command"].reason == "finalized_reply"
+    assert state["final_command"].text == "我会保持相近的简洁语气，但不会复述授权样本原文。"
+    assert any(event.action == "rewritten:direct_verbatim_copy" for event in state["trace"])

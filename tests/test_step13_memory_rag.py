@@ -113,6 +113,24 @@ def test_remember_instruction_saves_memory_in_workflow(tmp_path: Path) -> None:
     ]
 
 
+def test_suffix_remember_instruction_saves_memory_in_workflow(tmp_path: Path) -> None:
+    from agent_service.schemas import ChatRequest
+    from agent_service.workflow import run_agent_workflow
+
+    store = _memory_store(tmp_path)
+
+    state = run_agent_workflow(
+        ChatRequest.model_validate(_chat_payload("对的，1月1日是我的生日，记住")),
+        memory_store=store,
+        memory_top_k=3,
+    )
+
+    memories = store.list_memories(user_id=1002)
+    assert len(memories) == 1
+    assert memories[0].content == "对的，1月1日是我的生日"
+    assert state["retrieved_context"] == ["memory_saved: 对的，1月1日是我的生日"]
+
+
 def test_forget_instruction_deactivates_memory_in_workflow(tmp_path: Path) -> None:
     from agent_service.schemas import ChatRequest
     from agent_service.workflow import run_agent_workflow
@@ -165,3 +183,37 @@ def test_memory_query_injects_user_memory_into_workflow_context(tmp_path: Path) 
     assert [event.action for event in state["trace"] if event.node == "retrieve_context"] == [
         "memory_top_k=1"
     ]
+
+
+def test_smalltalk_reads_prior_memory_and_saves_new_chat_turn(tmp_path: Path) -> None:
+    from agent_service.llm import MockLLMClient
+    from agent_service.schemas import ChatRequest
+    from agent_service.workflow import run_agent_workflow
+
+    store = _memory_store(tmp_path)
+    prior = store.save_memory(
+        user_id=1002,
+        content="演示用户最近在准备项目演示",
+        source_message_id=6999,
+    )
+
+    state = run_agent_workflow(
+        ChatRequest.model_validate(_chat_payload("今天有点紧张", message_id=7002)),
+        memory_store=store,
+        memory_top_k=3,
+        llm_client=MockLLMClient({"reply_text": "没事，先把能讲清楚的讲清楚"}),
+        auto_memory_on_chat=True,
+        auto_memory_user_name="演示用户",
+        auto_memory_persona_name="示例伙伴",
+    )
+
+    memories = store.list_memories(user_id=1002)
+    contents = {memory.content for memory in memories}
+
+    assert f"memory: {prior.content}" in state["retrieved_context"]
+    assert "演示用户说：今天有点紧张" in contents
+    assert "示例伙伴回复：没事，先把能讲清楚的讲清楚" in contents
+    assert any(
+        event.node == "finalize_reply" and event.action == "auto_memory_saved=2"
+        for event in state["trace"]
+    )

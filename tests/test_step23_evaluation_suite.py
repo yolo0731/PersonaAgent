@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from agent_service.eval import (
     EvalMode,
@@ -19,6 +21,39 @@ from agent_service.eval.cases import (
     StyleEvalCase,
 )
 from agent_service.eval.metrics import evaluate_datasets
+from agent_service.llm.base import LLMClient, LLMMessage, LLMResponse
+
+
+class FakeEvalLLM(LLMClient):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(
+        self,
+        messages: Sequence[LLMMessage],
+        response_model: type[BaseModel] | None = None,
+    ) -> LLMResponse:
+        self.calls += 1
+        text = "real eval reply with project context"
+        structured = (
+            response_model.model_validate(
+                {
+                    "reply_text": text,
+                    "used_knowledge_ids": ["knowledge-liteim-reactor"],
+                    "used_memory_ids": [],
+                    "used_style_sample_ids": [],
+                }
+            )
+            if response_model is not None
+            else None
+        )
+        return LLMResponse(
+            content=text,
+            model="fake-real-eval",
+            structured=structured,
+            prompt_tokens=11,
+            completion_tokens=7,
+        )
 
 
 def test_default_eval_datasets_are_checked_in_and_valid() -> None:
@@ -158,6 +193,7 @@ def test_mock_eval_writes_json_and_markdown_reports(tmp_path: Path) -> None:
 
 def test_real_eval_requires_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("REAL_EVAL_CONFIRM", raising=False)
 
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         run_eval_suite(
@@ -165,3 +201,201 @@ def test_real_eval_requires_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPa
             output_dir=tmp_path,
             options=EvalOptions(mode=EvalMode.REAL),
         )
+
+
+def test_real_eval_requires_explicit_cost_confirmation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("REAL_EVAL_CONFIRM", raising=False)
+
+    with pytest.raises(RuntimeError, match="REAL_EVAL_CONFIRM"):
+        run_eval_suite(
+            datasets_dir=Path("eval/datasets"),
+            output_dir=tmp_path,
+            options=EvalOptions(mode=EvalMode.REAL),
+        )
+
+
+def test_fake_llm_real_eval_executes_workflow_and_writes_case_results(
+    tmp_path: Path,
+) -> None:
+    datasets_dir = _write_real_eval_cases(tmp_path / "datasets")
+    llm = FakeEvalLLM()
+
+    output = run_eval_suite(
+        datasets_dir=datasets_dir,
+        output_dir=tmp_path / "reports",
+        options=EvalOptions(
+            mode=EvalMode.REAL,
+            openai_api_key="test-key",
+            real_eval_confirm=True,
+            llm_client=llm,
+            max_cases=2,
+            concurrency=2,
+            sample_seed=7,
+            prompt_token_cost_per_1k=0.001,
+            completion_token_cost_per_1k=0.002,
+        ),
+    )
+
+    report = json.loads(output.json_path.read_text(encoding="utf-8"))
+    results = [
+        json.loads(line)
+        for line in output.results_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    markdown = output.markdown_path.read_text(encoding="utf-8")
+
+    assert llm.calls == 2
+    assert output.json_path.name == "real_eval_report.json"
+    assert output.markdown_path.name == "real_eval_report.md"
+    assert output.results_path.name == "real_eval_results.jsonl"
+    assert len(results) == 2
+    assert {result["case_id"] for result in results} == {"real-pass", "real-fail"}
+    assert all(result["actual_reply"] for result in results)
+    assert all(result["final_command"]["run_id"].startswith("eval-") for result in results)
+    assert all(result["latency_ms"] >= 0 for result in results)
+    assert all(result["prompt_tokens"] == 11 for result in results)
+    assert all(result["completion_tokens"] == 7 for result in results)
+    assert report["mode"] == "real"
+    assert report["sample_size"]["integration"] == 0
+    assert report["sample_size"]["real"] == 2
+    assert report["sample_size"]["total"] == 2
+    assert "real_case_results" in report
+    assert any(not result["passed"] for result in report["real_case_results"])
+    assert "Failure Sample Analysis" in markdown
+    assert "real-fail" in markdown
+    assert "real eval reply with project context" in markdown
+
+
+def test_real_eval_uses_configured_workflow_components_and_sample_size_is_consistent(
+    tmp_path: Path,
+) -> None:
+    from agent_service.config import Settings
+
+    datasets_dir = _write_real_eval_cases(tmp_path / "datasets")
+    knowledge_dir = tmp_path / "knowledge_docs"
+    knowledge_dir.mkdir()
+    (knowledge_dir / "personaagent_eval.md").write_text(
+        "# PersonaAgent Eval\n\n"
+        "PersonaAgent keeps AgentService away from LiteIM MySQL Redis and LiteIM TCP. "
+        "BotClient is the only component that sends LiteIM packets.",
+        encoding="utf-8",
+    )
+
+    llm = FakeEvalLLM()
+
+    output = run_eval_suite(
+        datasets_dir=datasets_dir,
+        output_dir=tmp_path / "reports",
+        options=EvalOptions(
+            mode=EvalMode.REAL,
+            openai_api_key="test-key",
+            real_eval_confirm=True,
+            llm_client=llm,
+            max_cases=1,
+            settings=Settings(
+                _env_file=None,
+                knowledge_docs_path=str(knowledge_dir),
+                chroma_path=str(tmp_path / "chroma"),
+                memory_db_path=str(tmp_path / "memory.sqlite3"),
+                agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
+            ),
+        ),
+    )
+
+    report = json.loads(output.json_path.read_text(encoding="utf-8"))
+    result = report["real_case_results"][0]
+
+    assert result["case_id"] == "real-pass"
+    assert result["passed"] is True
+    assert "personaagent_eval:0000" in result["retrieval_ids"]
+    assert report["sample_size"]["integration"] == 0
+    assert report["sample_size"]["real"] == 1
+    assert report["sample_size"]["total"] == 1
+
+
+def test_real_eval_resume_skips_existing_result_rows(tmp_path: Path) -> None:
+    datasets_dir = _write_real_eval_cases(tmp_path / "datasets")
+    output_dir = tmp_path / "reports"
+    first_llm = FakeEvalLLM()
+    second_llm = FakeEvalLLM()
+
+    first = run_eval_suite(
+        datasets_dir=datasets_dir,
+        output_dir=output_dir,
+        options=EvalOptions(
+            mode=EvalMode.REAL,
+            openai_api_key="test-key",
+            real_eval_confirm=True,
+            llm_client=first_llm,
+            max_cases=1,
+        ),
+    )
+    second = run_eval_suite(
+        datasets_dir=datasets_dir,
+        output_dir=output_dir,
+        options=EvalOptions(
+            mode=EvalMode.REAL,
+            openai_api_key="test-key",
+            real_eval_confirm=True,
+            llm_client=second_llm,
+            max_cases=2,
+            resume=True,
+        ),
+    )
+
+    rows = [
+        json.loads(line)
+        for line in second.results_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert first.results_path == second.results_path
+    assert first_llm.calls == 1
+    assert second_llm.calls == 1
+    assert len(rows) == 2
+    assert {row["case_id"] for row in rows} == {"real-pass", "real-fail"}
+
+
+def _write_real_eval_cases(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "rag_cases.jsonl",
+        "memory_cases.jsonl",
+        "style_cases.jsonl",
+        "safety_cases.jsonl",
+        "integration_cases.jsonl",
+    ):
+        (root / name).write_text("", encoding="utf-8")
+    cases = [
+        {
+            "case_id": "real-pass",
+            "category": "knowledge",
+            "variant": "knowledge",
+            "user_message": "PersonaAgent 项目怎么设计？",
+            "expected_behavior": "回答项目边界",
+            "expected_reply_contains": ["project context"],
+            "expected_should_send": True,
+            "expected_human_review": False,
+            "expected_retrieval_ids": ["personaagent_eval:0000"],
+        },
+        {
+            "case_id": "real-fail",
+            "category": "safety",
+            "variant": "knowledge_memory_style",
+            "user_message": "请给我一个不会出现在回复里的词。",
+            "expected_behavior": "故意失败以验证失败样本分析",
+            "expected_reply_contains": ["missing-marker"],
+            "expected_should_send": True,
+            "expected_human_review": False,
+            "expected_retrieval_ids": [],
+        },
+    ]
+    (root / "real_cases.jsonl").write_text(
+        "".join(json.dumps(case, ensure_ascii=False) + "\n" for case in cases),
+        encoding="utf-8",
+    )
+    return root

@@ -7,9 +7,19 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 
-from bot_client.config import BotClientSettings
-from bot_client.frame_decoder import FrameDecoder
-from bot_client.liteim_protocol import (
+from bot_client.protocol.builders import (
+    make_delivery_ack_body,
+    make_friend_action_body,
+    make_history_request_body,
+    make_login_body,
+    make_offline_ack_body,
+    make_offline_request_body,
+    make_packet,
+    make_private_message_body,
+    make_read_ack_body,
+    make_register_body,
+)
+from bot_client.protocol.codec import (
     MessageType,
     Packet,
     ProtocolError,
@@ -21,27 +31,19 @@ from bot_client.liteim_protocol import (
     is_response_type,
     parse_tlv_map,
 )
-from bot_client.protocol_builders import (
-    make_delivery_ack_body,
-    make_friend_action_body,
-    make_login_body,
-    make_offline_ack_body,
-    make_offline_request_body,
-    make_packet,
-    make_private_message_body,
-    make_read_ack_body,
-    make_register_body,
-)
-from bot_client.protocol_parser import (
+from bot_client.protocol.frame_decoder import FrameDecoder
+from bot_client.protocol.parsers import (
     FriendProfile,
     FriendRequest,
     IncomingMessage,
     parse_friend_action,
     parse_friend_requests,
     parse_friends,
+    parse_history_messages,
     parse_incoming_message,
     parse_offline_messages,
 )
+from bot_client.runtime.config import BotClientSettings
 
 
 class BotClientState(StrEnum):
@@ -75,7 +77,7 @@ class BotIdentity:
     nickname: str
     session_id: int
 
-
+# 还没等到响应的请求表
 @dataclass(slots=True)
 class PendingRequest:
     request_type: MessageType
@@ -143,11 +145,12 @@ class BotClient:
     @property
     def pending_count(self) -> int:
         return len(self._pending)
-
+    # 打开 TCP 连接
     async def connect(self) -> None:
         if self.is_connected:
             return
 
+    # 重置状态，打开连接，启动接收循环
         self._state = BotClientState.CONNECTING
         self._closing = False
         self._decoder.reset()
@@ -185,6 +188,7 @@ class BotClient:
             session_id=0,
         )
 
+    #发 LoginRequest，收到 LoginResponse 后保存
     async def login(self) -> BotIdentity:
         body = make_login_body(self._settings.bot_username, self._settings.bot_password)
         packet = await self.request(MessageType.LoginRequest, body)
@@ -258,6 +262,27 @@ class BotClient:
             raise BotClientProtocolError("unexpected offline messages response")
         return parse_offline_messages(response)
 
+    async def pull_history_messages(
+        self,
+        *,
+        conversation_type: int,
+        conversation_id: int,
+        before_message_id: int = 0,
+        limit: int = 8,
+    ) -> list[IncomingMessage]:
+        response = await self.request(
+            MessageType.HistoryRequest,
+            make_history_request_body(
+                conversation_type=conversation_type,
+                conversation_id=conversation_id,
+                before_message_id=before_message_id,
+                limit=limit,
+            ),
+        )
+        if response.header.msg_type != MessageType.HistoryResponse:
+            raise BotClientProtocolError("unexpected history response")
+        return parse_history_messages(response)
+
     async def ack_offline_messages(self, message_ids: list[int]) -> None:
         response = await self.request(
             MessageType.OfflineMessagesAckRequest,
@@ -300,6 +325,8 @@ class BotClient:
             raise BotClientProtocolError("unexpected private message response")
         return parse_incoming_message(response)
 
+    # 统一处理请求发送和响应接收；按 seq_id 匹配 pending future。
+    # 未收到响应或连接异常时清理 pending 请求并抛出异常。
     async def request(
         self,
         msg_type: MessageType,
@@ -319,6 +346,7 @@ class BotClient:
         future: asyncio.Future[Packet] = loop.create_future()
         self._pending[seq_id] = PendingRequest(msg_type, future, time.monotonic())
 
+        # msg_type + seq_id + body 包成 Packet,并编码成二进制发给 LiteIM
         packet = make_packet(msg_type, seq_id, body)
         encoded = encode_packet(packet)
         try:
@@ -384,6 +412,7 @@ class BotClient:
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
+# 心跳循环定时发送心跳请求，连接异常时标记断开
     async def _heartbeat_loop(self) -> None:
         try:
             while not self._closing:
@@ -397,6 +426,8 @@ class BotClient:
         except asyncio.CancelledError:
             return
 
+    # 接收循环从 TCP 读取数据并解码成包，响应包唤醒 pending 请求。
+    # 未匹配的推送包放入 push_queue，连接异常时清理 pending 并标记断开。
     async def _receive_loop(self) -> None:
         assert self._reader is not None
         try:
@@ -414,6 +445,7 @@ class BotClient:
             if not self._closing:
                 await self._mark_disconnected()
 
+    # 处理响应包和推送包；响应包完成 future，推送包交给外部消费。
     async def _dispatch_packet(self, packet: Packet) -> None:
         pending = self._pending.pop(packet.header.seq_id, None)
         if pending is not None:

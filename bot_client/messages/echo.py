@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from bot_client.message_handler import MessageProcessingResult
-from bot_client.protocol_parser import IncomingMessage
+from bot_client.messages.handler import MessageProcessingResult
+from bot_client.protocol.parsers import IncomingMessage
 
 
 @dataclass(frozen=True, slots=True)

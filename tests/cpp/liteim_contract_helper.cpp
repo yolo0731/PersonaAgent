@@ -1,3 +1,4 @@
+// C++ 测试 helper 用于验证 LiteIM 协议实现的编码和解析是否符合预期的协议契约。通过定义一系列合同测试用例，涵盖了不同类型的消息和字段组合，确保协议的正确性和兼容性。
 #include "liteim/base/ErrorCode.hpp"
 #include "liteim/base/Status.hpp"
 #include "liteim/base/Types.hpp"

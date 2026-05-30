@@ -66,6 +66,32 @@ def test_missing_ai_identity_notice_is_blocked() -> None:
     assert assessment.trace.identity_notice_present is False
 
 
+def test_ai_identity_notice_accepts_disclosure_boundary_wording() -> None:
+    from agent_service.safety.guard import SafetyGuard
+    from agent_service.schemas import ChatRequest
+
+    request = ChatRequest.model_validate(_chat_payload("正常问候"))
+    assessment = SafetyGuard().assess(
+        request=request,
+        draft="我在的，怎么啦",
+        prompt_messages=[
+            LLMMessage(
+                role="system",
+                content=(
+                    "This is an authorized PersonaAgent AI style companion. "
+                    "It must not hide that it is an AI Agent when identity disclosure "
+                    "is required."
+                ),
+            )
+        ],
+        retrieved_context=[],
+        style_sources=[],
+    )
+
+    assert assessment.blocked is False
+    assert assessment.trace.identity_notice_present is True
+
+
 def test_impersonation_attempt_is_blocked_by_workflow() -> None:
     from agent_service.schemas import ChatRequest
     from agent_service.workflow import run_agent_workflow
@@ -120,7 +146,7 @@ def test_privacy_leak_in_generated_reply_is_blocked() -> None:
     assert state["final_command"].reason == "safety_block"
 
 
-def test_verbatim_style_sample_copy_is_still_blocked_by_safety_guard(tmp_path: Path) -> None:
+def test_verbatim_style_sample_copy_is_rewritten_by_safety_guard(tmp_path: Path) -> None:
     from agent_service.governance.data_manifest import ProcessedStyleSample
     from agent_service.rag.embeddings import MockEmbeddingClient
     from agent_service.schemas import ChatRequest
@@ -160,11 +186,72 @@ def test_verbatim_style_sample_copy_is_still_blocked_by_safety_guard(tmp_path: P
         llm_client=FixedLLMClient(source_text),
     )
 
-    assert state["safety_result"].blocked is True
+    assert state["safety_result"].blocked is False
     assert state["safety_result"].reason == "direct_verbatim_copy"
     assert state["safety_result"].metrics is not None
     assert state["safety_result"].metrics.source_ids == ["style-step20"]
-    assert state["final_command"].reason == "safety_block"
+    assert state["final_command"].should_send is True
+    assert state["final_command"].reason == "finalized_reply"
+    assert state["final_command"].text == "我会保持相近的简洁语气，但不会复述授权样本原文。"
+
+
+def test_memory_answer_with_short_style_phrase_is_not_rewritten(tmp_path: Path) -> None:
+    from agent_service.governance.data_manifest import ProcessedStyleSample
+    from agent_service.memory.memory_store import MemoryStore
+    from agent_service.rag.embeddings import MockEmbeddingClient
+    from agent_service.schemas import ChatRequest
+    from agent_service.style.style_store import StyleStore
+    from agent_service.workflow import run_agent_workflow
+
+    memory = MemoryStore(
+        sqlite_path=tmp_path / "memory.sqlite3",
+        chroma_path=tmp_path / "chroma",
+        embedding_client=MockEmbeddingClient(),
+    )
+    memory.save_memory(
+        user_id=1002,
+        content="演示用户的生日是1月1日",
+        source_message_id=7000,
+    )
+    style = StyleStore(
+        chroma_path=tmp_path / "chroma",
+        embedding_client=MockEmbeddingClient(),
+        top_k=1,
+        min_samples=1,
+    )
+    style.index_samples(
+        [
+            ProcessedStyleSample(
+                sample_id="style-short-remember",
+                record_id="raw-style-short",
+                consent_id="consent-1002-style",
+                persona_id="1002",
+                speaker_user_id=1002,
+                source="fixture/style.jsonl",
+                text="记得",
+                allowed_usage=["style_simulation"],
+                forbidden_usage=[],
+                active=True,
+                revoked=False,
+                pii_redactions={"email": 0, "phone": 0, "id_card": 0},
+                timestamp_ms=1_700_000_001_000,
+            )
+        ]
+    )
+
+    state = run_agent_workflow(
+        ChatRequest.model_validate(_chat_payload("你记得我生日吗")),
+        memory_store=memory,
+        style_store=style,
+        style_on_private_chat=True,
+        llm_client=FixedLLMClient("记得，1月1日。"),
+        auto_memory_on_chat=True,
+    )
+
+    assert state["safety_result"].blocked is False
+    assert state["safety_result"].reason is None
+    assert state["final_command"].should_send is True
+    assert state["final_command"].text == "记得，1月1日。"
 
 
 def test_high_risk_domain_enters_human_review_and_reject_is_noop(tmp_path: Path) -> None:

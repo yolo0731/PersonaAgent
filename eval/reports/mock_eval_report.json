@@ -1,12 +1,13 @@
 {
   "mode": "mock",
-  "generated_at": "2026-05-24T19:51:40.735879+00:00",
+  "generated_at": "2026-05-28T12:47:42.033108+00:00",
   "sample_size": {
     "rag": 2,
     "memory": 2,
     "style": 2,
     "safety": 3,
     "integration": 4,
+    "real": 0,
     "total": 13
   },
   "metrics": {
@@ -50,5 +51,6 @@
       "token_cost_per_reply": 0.0,
       "liteim_integration_success_rate": 1.0
     }
-  }
+  },
+  "real_case_results": []
 }

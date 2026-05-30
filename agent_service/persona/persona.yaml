@@ -25,6 +25,9 @@ prompt_templates:
     Style instruction:
     {style_instruction}
 
+    Local persona profile:
+    {persona_profile}
+
     Retrieved and tool context:
     {context_block}
   user: |-

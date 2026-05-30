@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from bot_client.liteim_protocol import (
+from bot_client.protocol.codec import (
     PACKET_HEADER_SIZE,
     BytesLike,
     Packet,
