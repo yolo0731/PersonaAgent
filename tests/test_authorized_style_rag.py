@@ -257,14 +257,16 @@ def test_create_app_indexes_configured_authorized_style_samples(tmp_path: Path) 
     app = create_app(
         Settings(
             _env_file=None,
+            embedding_provider="mock",
             chroma_path=str(tmp_path / "chroma"),
             agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
             memory_db_path=str(tmp_path / "memory.sqlite3"),
+            knowledge_docs_path=str(tmp_path / "knowledge_docs"),
             style_samples_path=str(samples_path),
         )
     )
 
-    retrieval = app.state.style_store.retrieve_style(
+    retrieval = app.state.get_container().style_store.retrieve_style(
         persona_id="demo_persona",
         query="项目有点烦",
         top_k=2,

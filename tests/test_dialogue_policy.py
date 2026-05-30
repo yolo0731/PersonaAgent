@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
@@ -32,6 +33,21 @@ def _request(text: str, *, conversation_type: int = 1):
 
     return ChatRequest.model_validate(
         _chat_payload(text, conversation_type=conversation_type)
+    )
+
+
+def _agent_test_settings(tmp_path: Path):
+    from agent_service.config import Settings
+
+    return Settings(
+        _env_file=None,
+        embedding_provider="mock",
+        agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
+        memory_db_path=str(tmp_path / "memory.sqlite3"),
+        chroma_path=str(tmp_path / "chroma"),
+        knowledge_docs_path=str(tmp_path / "knowledge_docs"),
+        style_samples_path=str(tmp_path / "style_samples.local.jsonl"),
+        style_pairs_path=str(tmp_path / "style_pairs.local.jsonl"),
     )
 
 
@@ -223,7 +239,7 @@ def test_llm_dialogue_policy_falls_back_to_rules_on_llm_error() -> None:
     assert decision.reason == "fallback_knowledge_question"
 
 
-def test_chat_endpoint_can_use_configured_llm_dialogue_policy() -> None:
+def test_chat_endpoint_can_use_configured_llm_dialogue_policy(tmp_path: Path) -> None:
     from agent_service.config import Settings
     from agent_service.dialogue_policy import DialogueDecision
     from agent_service.main import create_app
@@ -260,7 +276,17 @@ def test_chat_endpoint_can_use_configured_llm_dialogue_policy() -> None:
     llm = NoReplyPolicyLLM()
     client = TestClient(
         create_app(
-            Settings(_env_file=None, dialogue_policy_mode="llm"),
+            Settings(
+                _env_file=None,
+                dialogue_policy_mode="llm",
+                embedding_provider="mock",
+                agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
+                memory_db_path=str(tmp_path / "memory.sqlite3"),
+                chroma_path=str(tmp_path / "chroma"),
+                knowledge_docs_path=str(tmp_path / "knowledge_docs"),
+                style_samples_path=str(tmp_path / "style_samples.local.jsonl"),
+                style_pairs_path=str(tmp_path / "style_pairs.local.jsonl"),
+            ),
             llm_client=llm,
         )
     )
@@ -295,11 +321,10 @@ def test_workflow_uses_structured_dialogue_decision_for_routing_and_safety() -> 
     assert unsafe_state["final_command"].reason == "safety_block"
 
 
-def test_chat_endpoint_noops_for_group_message_policy() -> None:
-    from agent_service.config import Settings
+def test_chat_endpoint_noops_for_group_message_policy(tmp_path: Path) -> None:
     from agent_service.main import create_app
 
-    client = TestClient(create_app(Settings(_env_file=None)))
+    client = TestClient(create_app(_agent_test_settings(tmp_path)))
 
     response = client.post(
         "/chat",

@@ -59,7 +59,7 @@ The AgentService workflow keeps six core nodes:
 
 Knowledge RAG stores project knowledge documents under `data/knowledge_docs`.
 
-AgentService loads markdown and text files from `KNOWLEDGE_DOCS_PATH`, splits them into chunks, embeds them with the configured embedding client abstraction, and writes them into the Chroma `knowledge` collection under `CHROMA_PATH`.
+AgentService loads markdown and text files from `KNOWLEDGE_DOCS_PATH`, splits them into chunks, embeds them with the configured embedding client abstraction, and writes them into provider/model-scoped Chroma knowledge collections under `CHROMA_PATH`.
 
 Knowledge RAG is for stable project facts and interview explanations. It should contain architecture notes, module responsibilities, run commands, design tradeoffs, and known limitations.
 
@@ -130,7 +130,7 @@ It includes a local Human Review operations UI, but it is not a full production 
 
 It does not fine-tune a model.
 
-It uses deterministic mock embeddings in default tests, so production semantic retrieval quality depends on replacing that with a stronger embedding provider.
+Production retrieval defaults to real Gemini embeddings through `EMBEDDING_PROVIDER=gemini`, `EMBEDDING_MODEL=models/gemini-embedding-001`, and `GEMINI_API_KEY`. Deterministic mock embeddings remain only for tests and offline demos.
 
 Knowledge RAG only knows documents that are placed under `data/knowledge_docs` and indexed into Chroma. If the directory has only `.gitkeep`, the knowledge collection will be empty.
 

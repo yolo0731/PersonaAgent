@@ -56,6 +56,21 @@ class FakeEvalLLM(LLMClient):
         )
 
 
+def _real_eval_test_settings(tmp_path: Path, *, knowledge_docs_path: Path | None = None):
+    from agent_service.config import Settings
+
+    return Settings(
+        _env_file=None,
+        embedding_provider="mock",
+        knowledge_docs_path=str(knowledge_docs_path or tmp_path / "knowledge_docs"),
+        chroma_path=str(tmp_path / "chroma"),
+        memory_db_path=str(tmp_path / "memory.sqlite3"),
+        agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
+        style_samples_path=str(tmp_path / "style_samples.local.jsonl"),
+        style_pairs_path=str(tmp_path / "style_pairs.local.jsonl"),
+    )
+
+
 def test_default_eval_datasets_are_checked_in_and_valid() -> None:
     datasets = load_eval_datasets(Path("eval/datasets"))
 
@@ -235,6 +250,7 @@ def test_fake_llm_real_eval_executes_workflow_and_writes_case_results(
             max_cases=2,
             concurrency=2,
             sample_seed=7,
+            settings=_real_eval_test_settings(tmp_path),
             prompt_token_cost_per_1k=0.001,
             completion_token_cost_per_1k=0.002,
         ),
@@ -298,10 +314,13 @@ def test_real_eval_uses_configured_workflow_components_and_sample_size_is_consis
             max_cases=1,
             settings=Settings(
                 _env_file=None,
+                embedding_provider="mock",
                 knowledge_docs_path=str(knowledge_dir),
                 chroma_path=str(tmp_path / "chroma"),
                 memory_db_path=str(tmp_path / "memory.sqlite3"),
                 agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
+                style_samples_path=str(tmp_path / "style_samples.local.jsonl"),
+                style_pairs_path=str(tmp_path / "style_pairs.local.jsonl"),
             ),
         ),
     )
@@ -332,6 +351,7 @@ def test_real_eval_resume_skips_existing_result_rows(tmp_path: Path) -> None:
             real_eval_confirm=True,
             llm_client=first_llm,
             max_cases=1,
+            settings=_real_eval_test_settings(tmp_path),
         ),
     )
     second = run_eval_suite(
@@ -344,6 +364,7 @@ def test_real_eval_resume_skips_existing_result_rows(tmp_path: Path) -> None:
             llm_client=second_llm,
             max_cases=2,
             resume=True,
+            settings=_real_eval_test_settings(tmp_path),
         ),
     )
 

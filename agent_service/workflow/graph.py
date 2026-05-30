@@ -1,25 +1,21 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from typing import Literal, TypedDict, cast
+from typing import cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel
 
 from agent_service.dialogue_policy import (
     PRIVATE_CONVERSATION_TYPE,
-    DialogueDecision,
     DialogueIntent,
     DialoguePolicy,
 )
-from agent_service.generation import GenerationTrace, LLMReplyGenerator, ReplyDraft
+from agent_service.generation import LLMReplyGenerator
 from agent_service.llm import LLMClient
-from agent_service.llm.base import LLMMessage
 from agent_service.memory.memory_store import MemoryNotFoundError, MemoryStore
 from agent_service.memory.memory_tools import parse_forget_memory_id, parse_remember_content
-from agent_service.persona import PersonaEngine, PromptMetadata
+from agent_service.persona import PersonaEngine
 from agent_service.rag.documents import RetrievalTrace
 from agent_service.rag.knowledge_retriever import KnowledgeRetriever
 from agent_service.review import (
@@ -28,8 +24,8 @@ from agent_service.review import (
     make_thread_id,
     resume_human_review,
 )
-from agent_service.safety.guard import SafetyGuard, SafetyTrace
-from agent_service.safety.verbatim_guard import LeakageMetrics, LeakageSource
+from agent_service.safety.guard import SafetyGuard
+from agent_service.safety.verbatim_guard import LeakageSource
 from agent_service.schemas import (
     AgentReplyCommand,
     ChatRequest,
@@ -46,79 +42,14 @@ from agent_service.tools import (
     ToolRuntimeContext,
     ToolTrace,
 )
-
-EXPECTED_NODE_ORDER = [
-    "dialogue_policy",
-    "retrieve_context",
-    "tool_router",
-    "generate_reply",
-    "safety_check",
-    "finalize_reply",
-]
-
-
-class SafetyResult(BaseModel):
-    blocked: bool
-    reason: str | None = None
-    needs_human_review: bool = False
-    metrics: LeakageMetrics | None = None
-    trace: SafetyTrace | None = None
-
-
-class TraceEvent(BaseModel):
-    node: str
-    action: str
-
-
-@dataclass(frozen=True)
-class ParsedToolCommand:
-    name: str
-    payload: dict[str, object]
-
-
-class AgentState(TypedDict):
-    request: ChatRequest
-    run_id: str
-    decision: DialogueDecision
-    retrieved_context: list[str]
-    retrieval_trace: list[RetrievalTrace]
-    tool_calls: list[str]
-    tool_results: list[str]
-    prompt_messages: list[LLMMessage]
-    prompt_metadata: PromptMetadata | None
-    reply_draft: ReplyDraft | None
-    generation_trace: GenerationTrace | None
-    draft: str
-    safety_result: SafetyResult
-    final_command: AgentReplyCommand
-    trace: list[TraceEvent]
-
-
-GraphRoute = Literal["retrieve_context", "finalize_reply"]
-
-
-def make_initial_agent_state(request: ChatRequest) -> AgentState:
-    return AgentState(
-        request=request,
-        run_id=request.run_id,
-        decision=DialogueDecision(
-            intent=DialogueIntent.SMALLTALK,
-            should_reply=True,
-            reason="not_evaluated",
-        ),
-        retrieved_context=[],
-        retrieval_trace=[],
-        tool_calls=[],
-        tool_results=[],
-        prompt_messages=[],
-        prompt_metadata=None,
-        reply_draft=None,
-        generation_trace=None,
-        draft="",
-        safety_result=SafetyResult(blocked=False),
-        final_command=no_reply_command(request, "not_finalized"),
-        trace=[],
-    )
+from agent_service.workflow.state import (
+    AgentState,
+    GraphRoute,
+    ParsedToolCommand,
+    SafetyResult,
+    TraceEvent,
+    make_initial_agent_state,
+)
 
 
 def build_agent_graph(

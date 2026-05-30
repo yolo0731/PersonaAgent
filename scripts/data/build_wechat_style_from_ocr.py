@@ -13,10 +13,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agent_service.config import Settings
+from agent_service.container import build_embedding_client, embedding_collection_name
 from agent_service.governance.consent import ConsentManifest, ConsentRecord
 from agent_service.governance.data_manifest import RawStyleRecord, StyleDataImporter
 from agent_service.governance.pii_redactor import PiiRedactor
-from agent_service.rag.embeddings import MockEmbeddingClient
 from agent_service.style.filters import is_learnable_style_text
 from agent_service.style.style_store import StyleStore
 
@@ -77,6 +78,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="data/authorized_style_records/processed/import_report.local.json",
     )
     parser.add_argument("--index-chroma", help="Optional Chroma path for immediate indexing.")
+    parser.add_argument(
+        "--embedding-provider",
+        help="Embedding provider used with --index-chroma. Defaults to Settings/.env.",
+    )
+    parser.add_argument(
+        "--embedding-model",
+        help="Embedding model used with --index-chroma. Defaults to Settings/.env.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args(argv)
 
@@ -158,9 +167,11 @@ def build_style_from_ocr(args: argparse.Namespace) -> StyleFromOcrOutput:
 
     indexed_count = 0
     if args.index_chroma:
+        settings = _embedding_settings(args)
         indexed_count = StyleStore(
             chroma_path=args.index_chroma,
-            embedding_client=MockEmbeddingClient(),
+            embedding_client=build_embedding_client(settings),
+            collection_name=embedding_collection_name("style", settings),
         ).replace_samples(result.samples)
 
     return StyleFromOcrOutput(
@@ -189,6 +200,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"samples={output.samples_path}"
     )
     return 0
+
+
+def _embedding_settings(args: argparse.Namespace) -> Settings:
+    settings = Settings()
+    updates: dict[str, str] = {}
+    if args.embedding_provider:
+        updates["embedding_provider"] = str(args.embedding_provider)
+    if args.embedding_model:
+        updates["embedding_model"] = str(args.embedding_model)
+    if not updates:
+        return settings
+    return settings.model_copy(update=updates)
 
 
 def _load_ocr_messages(path: Path, *, start_date: date, end_date: date) -> list[OcrMessage]:

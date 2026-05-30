@@ -14,6 +14,13 @@ def test_settings_have_safe_defaults_without_env_file() -> None:
     assert settings.llm_request_timeout_seconds == 30.0
     assert settings.openai_api_key is None
     assert settings.openai_base_url is None
+    assert settings.embedding_provider == "gemini"
+    assert settings.embedding_model == "models/gemini-embedding-001"
+    assert settings.embedding_request_timeout_seconds == 30.0
+    assert settings.embedding_api_key is None
+    assert settings.embedding_base_url is None
+    assert settings.gemini_api_key is None
+    assert settings.gemini_base_url == "https://generativelanguage.googleapis.com/v1beta"
     assert settings.rag_top_k == 5
     assert settings.style_top_k == 8
     assert settings.style_profile_path is None

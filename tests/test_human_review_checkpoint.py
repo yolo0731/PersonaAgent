@@ -26,7 +26,18 @@ def _client(db_path: Path) -> TestClient:
     from agent_service.main import create_app
 
     return TestClient(
-        create_app(Settings(_env_file=None, agent_state_db_path=str(db_path)))
+        create_app(
+            Settings(
+                _env_file=None,
+                embedding_provider="mock",
+                agent_state_db_path=str(db_path),
+                memory_db_path=str(db_path.parent / "memory.sqlite3"),
+                chroma_path=str(db_path.parent / "chroma"),
+                knowledge_docs_path=str(db_path.parent / "knowledge_docs"),
+                style_samples_path=str(db_path.parent / "style_samples.local.jsonl"),
+                style_pairs_path=str(db_path.parent / "style_pairs.local.jsonl"),
+            )
+        )
     )
 
 
@@ -38,7 +49,13 @@ def _token_client(db_path: Path, token: str) -> TestClient:
         create_app(
             Settings(
                 _env_file=None,
+                embedding_provider="mock",
                 agent_state_db_path=str(db_path),
+                memory_db_path=str(db_path.parent / "memory.sqlite3"),
+                chroma_path=str(db_path.parent / "chroma"),
+                knowledge_docs_path=str(db_path.parent / "knowledge_docs"),
+                style_samples_path=str(db_path.parent / "style_samples.local.jsonl"),
+                style_pairs_path=str(db_path.parent / "style_pairs.local.jsonl"),
                 review_ui_token=token,
             )
         )

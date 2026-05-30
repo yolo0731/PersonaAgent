@@ -373,17 +373,18 @@ def _build_real_eval_runtime(options: EvalOptions, *, llm_client: LLMClient) -> 
 
     settings = options.settings or Settings()
     app = create_app(settings=settings, llm_client=llm_client)
+    container = app.state.get_container()
     return RealEvalRuntime(
         settings=settings,
         llm_client=llm_client,
-        dialogue_policy=app.state.dialogue_policy,
-        knowledge_retriever=app.state.knowledge_retriever,
-        memory_store=app.state.memory_store,
-        style_store=app.state.style_store,
-        style_pair_store=app.state.style_pair_store,
-        tool_registry=app.state.tool_registry,
-        persona_engine=app.state.persona_engine,
-        style_learning_store=app.state.style_learning_store,
+        dialogue_policy=container.dialogue_policy,
+        knowledge_retriever=container.knowledge_retriever,
+        memory_store=container.memory_store,
+        style_store=container.style_store,
+        style_pair_store=container.style_pair_store,
+        tool_registry=container.tool_registry,
+        persona_engine=container.persona_engine,
+        style_learning_store=container.style_learning_store,
     )
 
 

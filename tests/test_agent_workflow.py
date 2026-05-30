@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 
@@ -15,6 +17,21 @@ def _chat_payload(run_id: str = "run-graph-ok", text: str = "hello graph") -> di
         "timestamp_ms": 1_700_000_001_000,
         "client_message_id": "alice-7001",
     }
+
+
+def _agent_test_settings(tmp_path: Path):
+    from agent_service.config import Settings
+
+    return Settings(
+        _env_file=None,
+        embedding_provider="mock",
+        agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
+        memory_db_path=str(tmp_path / "memory.sqlite3"),
+        chroma_path=str(tmp_path / "chroma"),
+        knowledge_docs_path=str(tmp_path / "knowledge_docs"),
+        style_samples_path=str(tmp_path / "style_samples.local.jsonl"),
+        style_pairs_path=str(tmp_path / "style_pairs.local.jsonl"),
+    )
 
 
 def test_agent_graph_runs_all_six_nodes_to_final_command() -> None:
@@ -76,11 +93,10 @@ def test_agent_graph_safety_block_prevents_send_after_full_path() -> None:
     assert [event.node for event in state["trace"]] == EXPECTED_NODE_ORDER
 
 
-def test_chat_endpoint_uses_default_langgraph_handler_for_no_reply() -> None:
-    from agent_service.config import Settings
+def test_chat_endpoint_uses_default_langgraph_handler_for_no_reply(tmp_path: Path) -> None:
     from agent_service.main import create_app
 
-    client = TestClient(create_app(Settings(_env_file=None)))
+    client = TestClient(create_app(_agent_test_settings(tmp_path)))
 
     response = client.post("/chat", json=_chat_payload("run-http-no-reply", "/no-reply"))
 

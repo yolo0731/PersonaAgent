@@ -56,6 +56,8 @@ def test_wechat_style_import_writes_raw_processed_report_and_indexes_style(
             str(report_path),
             "--index-chroma",
             str(chroma_path),
+            "--embedding-provider",
+            "mock",
             "--overwrite",
         ]
     )

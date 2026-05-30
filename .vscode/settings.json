@@ -1,8 +1,0 @@
-{
-  "python.defaultInterpreterPath": "/home/yolo/anaconda3/envs/agent/bin/python",
-  "python.analysis.autoSearchPaths": true,
-  "python.analysis.diagnosticMode": "workspace",
-  "python.analysis.extraPaths": [
-    "${workspaceFolder}"
-  ]
-}

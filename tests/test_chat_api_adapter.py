@@ -33,6 +33,21 @@ def _chat_payload(run_id: str = "run-1") -> dict[str, object]:
     }
 
 
+def _agent_test_settings(tmp_path: Path):
+    from agent_service.config import Settings
+
+    return Settings(
+        _env_file=None,
+        embedding_provider="mock",
+        agent_state_db_path=str(tmp_path / "agent_state.sqlite3"),
+        memory_db_path=str(tmp_path / "memory.sqlite3"),
+        chroma_path=str(tmp_path / "chroma"),
+        knowledge_docs_path=str(tmp_path / "knowledge_docs"),
+        style_samples_path=str(tmp_path / "style_samples.local.jsonl"),
+        style_pairs_path=str(tmp_path / "style_pairs.local.jsonl"),
+    )
+
+
 def _packet(msg_type: MessageType, body: bytes) -> Packet:
     return Packet(header=PacketHeader(msg_type=msg_type, seq_id=99), body=body)
 
@@ -85,11 +100,10 @@ class FakeReliabilityClient:
         self.sent_private_messages.append((receiver_id, text, client_message_id))
 
 
-def test_chat_endpoint_returns_mock_reply_command() -> None:
-    from agent_service.config import Settings
+def test_chat_endpoint_returns_mock_reply_command(tmp_path: Path) -> None:
     from agent_service.main import create_app
 
-    client = TestClient(create_app(Settings(_env_file=None)))
+    client = TestClient(create_app(_agent_test_settings(tmp_path)))
 
     response = client.post("/chat", json=_chat_payload("run-chat-ok"))
 
@@ -104,15 +118,14 @@ def test_chat_endpoint_returns_mock_reply_command() -> None:
     assert body["command"]["client_message_id"] == "pa-run-chat-ok"
 
 
-def test_chat_endpoint_returns_structured_error_envelope() -> None:
-    from agent_service.config import Settings
+def test_chat_endpoint_returns_structured_error_envelope(tmp_path: Path) -> None:
     from agent_service.main import create_app
     from agent_service.schemas import ChatRequest
 
     async def failing_handler(_request: ChatRequest) -> object:
         raise RuntimeError("boom")
 
-    client = TestClient(create_app(Settings(_env_file=None), chat_handler=failing_handler))
+    client = TestClient(create_app(_agent_test_settings(tmp_path), chat_handler=failing_handler))
 
     response = client.post("/chat", json=_chat_payload("run-chat-error"))
 
@@ -177,13 +190,14 @@ def test_chat_request_from_liteim_message_includes_recent_context() -> None:
     ]
 
 
-async def test_agent_api_client_posts_chat_request_and_returns_command() -> None:
-    from agent_service.config import Settings
+async def test_agent_api_client_posts_chat_request_and_returns_command(
+    tmp_path: Path,
+) -> None:
     from agent_service.main import create_app
     from agent_service.schemas import ChatRequest
     from bot_client.agent.api import AgentApiClient
 
-    app = create_app(Settings(_env_file=None))
+    app = create_app(_agent_test_settings(tmp_path))
     transport = httpx.ASGITransport(app=app)
     api_client = AgentApiClient(
         base_url="http://agent.test",
@@ -200,10 +214,11 @@ async def test_agent_api_client_posts_chat_request_and_returns_command() -> None
     assert command.client_message_id == "pa-run-http-ok"
 
 
-async def test_chat_endpoint_runs_sync_handler_without_blocking_health() -> None:
+async def test_chat_endpoint_runs_sync_handler_without_blocking_health(
+    tmp_path: Path,
+) -> None:
     import asyncio
 
-    from agent_service.config import Settings
     from agent_service.main import create_app
     from agent_service.schemas import ChatRequest, no_reply_command
 
@@ -211,7 +226,7 @@ async def test_chat_endpoint_runs_sync_handler_without_blocking_health() -> None
         sleep(0.2)
         return no_reply_command(request, "slow_handler_done")
 
-    app = create_app(Settings(_env_file=None), chat_handler=slow_handler)
+    app = create_app(_agent_test_settings(tmp_path), chat_handler=slow_handler)
     transport = httpx.ASGITransport(app=app)
 
     async with httpx.AsyncClient(

@@ -37,11 +37,23 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     openai_base_url: str | None = Field(default=None, validation_alias="OPENAI_BASE_URL")
 
-    # Embedding 模型和提供商
-    embedding_provider: str = Field(default="openai", validation_alias="EMBEDDING_PROVIDER")
+    # Embedding 模型和提供商。生产运行默认使用真实 provider；单元测试显式注入 mock。
+    embedding_provider: str = Field(default="gemini", validation_alias="EMBEDDING_PROVIDER")
     embedding_model: str = Field(
-        default="text-embedding-3-small",
+        default="models/gemini-embedding-001",
         validation_alias="EMBEDDING_MODEL",
+    )
+    embedding_request_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="EMBEDDING_REQUEST_TIMEOUT_SECONDS",
+        gt=0.0,
+    )
+    embedding_api_key: str | None = Field(default=None, validation_alias="EMBEDDING_API_KEY")
+    embedding_base_url: str | None = Field(default=None, validation_alias="EMBEDDING_BASE_URL")
+    gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
+    gemini_base_url: str = Field(
+        default="https://generativelanguage.googleapis.com/v1beta",
+        validation_alias="GEMINI_BASE_URL",
     )
     # 向量数据库类型
     vector_db: str = Field(default="chroma", validation_alias="VECTOR_DB")
