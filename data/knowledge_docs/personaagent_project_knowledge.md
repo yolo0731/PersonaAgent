@@ -2,7 +2,7 @@
 
 ## Project Positioning
 
-PersonaAgent is project two in the `/home/yolo/jianli` workspace. It is an authorized persona-style AI Agent worker connected to LiteIM through a normal bot account.
+PersonaAgent is an authorized persona-style AI Agent worker connected to LiteIM through a normal bot account.
 
 The project is designed for interview presentation as an AI Agent system with clear engineering boundaries, retrieval, memory, authorized style data, safety checks, traceability, and evaluation.
 

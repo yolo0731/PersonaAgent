@@ -37,7 +37,7 @@ class MockDemoOutput:
     transcript_path: Path
 
 
-def run_mock_demo(output_dir: str | Path = "docs/demo") -> MockDemoOutput:
+def run_mock_demo(output_dir: str | Path = "data/runtime/demo") -> MockDemoOutput:
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -101,7 +101,7 @@ def _knowledge_rag(*, temp_root: Path, embeddings: MockEmbeddingClient) -> dict[
         [
             KnowledgeDocument(
                 doc_id="demo-personaagent",
-                source="docs/demo",
+                source="demo",
                 title="PersonaAgent route",
                 text=(
                     "PersonaAgent connects to LiteIM as a BotClient and keeps "
@@ -312,7 +312,7 @@ def _markdown(payload: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the offline PersonaAgent mock demo.")
-    parser.add_argument("--output-dir", default="docs/demo")
+    parser.add_argument("--output-dir", default="data/runtime/demo")
     args = parser.parse_args()
     output = run_mock_demo(output_dir=args.output_dir)
     print(f"Wrote {output.json_path}")

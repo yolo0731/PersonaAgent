@@ -1,6 +1,6 @@
 # PersonaAgent
 
-PersonaAgent is the second project in the `/home/yolo/jianli` workspace: a first-version Python BotClient plus FastAPI AgentService AI Agent Worker that connects to LiteIM as a normal TCP/TLV client account.
+PersonaAgent is a Python BotClient plus FastAPI AgentService AI Agent Worker that connects to LiteIM as a normal TCP/TLV client account.
 
 The core boundary is simple:
 
@@ -29,7 +29,7 @@ LiteIM user client
 - Tool Calling framework with schema validation, timeout traces, idempotency keys, and safe memory/context tools.
 - Persona prompt engine, structured LLM reply generation, SafetyGuard, Human Review, final `AgentReplyCommand`, and BotClient command execution.
 - Evaluation suite with JSONL datasets, offline mock eval, gated real workflow eval, metrics, reports, and failure sample analysis.
-- Demo docs, architecture docs, interview notes, and 24 step-by-step tutorials.
+- Public runtime examples, tests, and sanitized configuration templates.
 
 ## Project Layout
 
@@ -41,7 +41,6 @@ scripts/runtime/        Real BotClient runner
 scripts/data/           Authorized style data import/OCR helpers
 eval/datasets/          Mock and real-eval JSONL cases
 eval/reports/           Generated mock eval reports
-docs/                   Architecture, demo guide, tutorials, interview notes, process records
 tests/                  Pytest coverage for each step and integration boundary
 ```
 
@@ -84,11 +83,11 @@ To configure a personalized chatbot, keep private data in local ignored files an
 - Set `STYLE_PERSONA_ID`, `STYLE_ON_SMALLTALK=true`, and `STYLE_ON_PRIVATE_CHAT=true` when ordinary private chats should use the configured style.
 - Keep `AGENT_STATE_DB_PATH`, `MEMORY_DB_PATH`, `BOT_STATE_PATH`, and `CHROMA_PATH` under ignored runtime/state directories.
 
-The public repository should contain only placeholders, examples, and sanitized docs. Real names, API keys, chat exports, local memories, and generated vector indexes stay local.
+The public repository should contain only placeholders, examples, and sanitized source files. Real names, API keys, chat exports, local memories, generated vector indexes, and internal learning notes stay local.
 
 ## Quick Start
 
-Install dependencies in the existing local conda environment:
+Install dependencies:
 
 ```bash
 conda run --no-capture-output -n agent python -m pip install -e ".[dev,openai]"
@@ -97,7 +96,8 @@ conda run --no-capture-output -n agent python -m pip install -e ".[dev,openai]"
 Run the offline mock demo:
 
 ```bash
-conda run --no-capture-output -n agent python scripts/demo/run_mock_demo.py --output-dir docs/demo
+conda run --no-capture-output -n agent python scripts/demo/run_mock_demo.py \
+  --output-dir data/runtime/demo
 ```
 
 Start AgentService in mock mode:
@@ -162,10 +162,3 @@ conda run --no-capture-output -n agent python -m mypy agent_service bot_client
 ## Data Safety
 
 Authorized Style RAG is not ordinary few-shot prompting. Raw chat exports stay local and ignored. Only consent metadata, redacted processed examples, and safe demo artifacts belong in Git. The import pipeline validates consent, applies PII redaction, records import reports, and keeps revocation/active metadata for retrieval filtering.
-
-## Docs
-
-- [Architecture](docs/architecture.md)
-- [Demo guide](docs/demo/README.md)
-- [Tutorials](docs/tutorials/)
-- [Interview notes](docs/interview/persona_agent_interview_notes.md)

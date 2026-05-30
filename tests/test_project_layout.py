@@ -70,17 +70,6 @@ def test_expected_runtime_directories_are_explicitly_scaffolded() -> None:
     assert (root / "knowledge_docs").is_dir()
 
 
-def test_interview_notes_document_project_two_talking_points() -> None:
-    notes = Path("docs/interview/persona_agent_interview_notes.md")
-    text = notes.read_text(encoding="utf-8")
-
-    assert "authorized persona-style conversational agent" in text
-    assert "AgentService does not access LiteIM MySQL or Redis directly" in text
-    assert "Memory RAG" in text
-    assert "Authorized Style RAG" in text
-    assert "Fine-tuning is a future optimization" in text
-
-
 def test_env_example_has_unique_runtime_keys() -> None:
     env_example = Path(".env.example")
     keys: list[str] = []
@@ -94,14 +83,10 @@ def test_env_example_has_unique_runtime_keys() -> None:
     assert duplicates == []
 
 
-def test_final_docs_do_not_keep_unfinished_process_plan_artifacts() -> None:
-    assert not Path("docs/superpowers").exists()
-
-
 def test_readme_describes_current_implemented_agent_not_old_mock_stage() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "first-version Python BotClient plus FastAPI AgentService" in readme
+    assert "Python BotClient plus FastAPI AgentService" in readme
     assert "AgentService `/chat` API" in readme
     assert "mock reply handler" not in readme
 
@@ -130,18 +115,13 @@ def test_bot_client_root_only_contains_responsibility_packages() -> None:
         assert (bot_client_root / package / "__init__.py").is_file()
 
 
-def test_current_sources_and_docs_do_not_reference_old_bot_client_import_paths() -> None:
+def test_current_sources_do_not_reference_old_bot_client_import_paths() -> None:
     paths_to_scan = [
         Path("README.md"),
         Path("agent_service"),
         Path("bot_client"),
         Path("scripts"),
         Path("tests"),
-        Path("docs/architecture.md"),
-        Path("docs/demo"),
-        Path("docs/interview"),
-        Path("docs/mianshi"),
-        Path("docs/tutorials"),
     ]
     workspace_project = Path("../PROJECT.md")
     if workspace_project.exists():
